@@ -109,5 +109,5 @@ See [the medical diagnostic experiment guide](docs/medical-diagnostic-experiment
 for the patient-level manifest schema, model factory interfaces, real-data
 configuration, leakage controls, metrics, and interpretation rules.
 
-For the ready-to-run Qwen3-VL-8B + LafitE configuration on four A100 GPUs, see
+For the ready-to-run single-A100 Qwen3-VL-8B + LafitE configuration, see
 [the Qwen3-VL diagnostics runbook](docs/qwen3vl-medical-diagnostics-runbook.md).

@@ -4,16 +4,17 @@
 `Qwen/Qwen3-VL-8B-Instruct`。LLM 纯文本模型不能提供实验一所需的视觉层、
 projector 和图像 token，因此不适合替代它。
 
-默认四卡分配如下：
+运行脚本现在默认使用单卡并串行执行：
 
 | 工作 | 默认设备 |
 | --- | --- |
 | 实验一 LafitE 特征 | `cuda:0` |
-| 实验一 Qwen3-VL 特征 | `cuda:1` |
-| 实验二 LafitE 干预评分 | `cuda:2` |
-| 实验三 Qwen3-VL 语义评分 | `cuda:3` |
+| 实验一 Qwen3-VL 特征 | `cuda:0` |
+| 实验二 LafitE 干预评分 | `cuda:0` |
+| 实验三 Qwen3-VL 语义评分 | `cuda:0` |
 
-所有设备都可用环境变量覆盖，参见本文末尾。
+Qwen3-VL-8B 的 BF16 权重和单图中间状态可以放入一张 A100-80GB。各子命令是
+独立进程，前一个模型退出后才加载下一个模型，不会同时把 LafitE 和两份 Qwen 常驻显存。
 
 ## 1. 安装
 
@@ -58,24 +59,30 @@ bash scripts/medical/run-smoke-suite.sh
 - CT 窗当前固定为 `[level=40, width=400]`，换器官或协议时应先修改全部配置，
   保证三项实验的预处理一致。
 
-## 3. 设置一次环境变量
+## 3. 在运行脚本中设置路径和阈值
+
+打开 `scripts/medical/run-qwen3vl-diagnostics.sh`，只修改文件顶部的
+`User settings` 区域：
 
 ```bash
-export MEDICAL_MANIFEST=/data/project/manifest.jsonl
-export SEMANTIC_MANIFEST=/data/project/semantic-manifest.jsonl
-export LAFITE_CHECKPOINT=/data/checkpoints/ckpt_best.pth.tar
-export LAFITE_MASK_THRESHOLD=0.25
-export LAFITE_SCORE_THRESHOLD=0.50
-export MEDICAL_OUTPUT_ROOT=/data/results/lafite-medical
-export LAFITE_PYTHON=python
+USER_MEDICAL_MANIFEST="/data/project/manifest.jsonl"
+USER_SEMANTIC_MANIFEST="/data/project/semantic-manifest.jsonl"
+USER_LAFITE_CHECKPOINT="/data/checkpoints/ckpt_best.pth.tar"
+USER_LAFITE_MASK_THRESHOLD="0.25"
+USER_LAFITE_SCORE_THRESHOLD="0.50"
+USER_MEDICAL_OUTPUT_ROOT="/data/results/lafite-medical"
+USER_MLLM_MODEL_ID="Qwen/Qwen3-VL-8B-Instruct"
+USER_SINGLE_GPU="cuda:0"
+USER_QWEN_ATTENTION="sdpa"
+USER_LAFITE_PYTHON="python3"
 ```
 
-如果语义字段已经在 `MEDICAL_MANIFEST` 中，可以不设 `SEMANTIC_MANIFEST`。
-如果 Qwen 权重已缓存到本地目录，可覆盖模型 ID：
+如果语义字段已经在主 manifest 中，保持 `USER_SEMANTIC_MANIFEST=""` 即可。
+如果 Qwen 权重已在本地，把 `USER_MLLM_MODEL_ID` 改成本地目录。脚本仍允许同名环境
+变量覆盖这些值，因此 Slurm 等调度任务不需要修改仓库文件。
 
-```bash
-export MLLM_MODEL_ID=/data/models/Qwen3-VL-8B-Instruct
-```
+mask threshold 和 score threshold 的示例数字不是通用阈值，必须替换为 calibration/val
+集的结果。脚本故意把它们默认留空，避免无意中在 test 集使用示例阈值。
 
 ## 4. 运行三个实验
 
@@ -92,6 +99,31 @@ bash scripts/medical/run-qwen3vl-diagnostics.sh exp3
 ```bash
 bash scripts/medical/run-qwen3vl-diagnostics.sh all
 ```
+
+### 4.1 单卡大致耗时
+
+耗时主要由样本数 `N` 和实验三候选 finding 数 `K` 决定。以下只是
+**A100-80GB、512×512、Qwen3-VL-8B、SDPA 的量级预估**，不是本仓库在你的数据上的
+实测 benchmark：
+
+| 实验 | 主要计算量 | 小规模 pilot 的常见量级 |
+| --- | --- | --- |
+| 实验一 | 每张图一次 LafitE、一次 Qwen，再训练多个等容量 probe | `N≈200–500`：约 20–90 分钟 |
+| 实验二 | 正例约 4 个 LafitE 变体，正常例约 2 个变体 | `N≈200–500`：约 5–30 分钟 |
+| 实验三 | 约 `4 × N × K` 次 Qwen 条件评分前向 | `N≈100, K≈5`：约 20–90 分钟 |
+
+实验三通常最慢。例如 `N=500, K=10` 就是约 20,000 次模型前向，可能需要数小时。
+首次运行还会下载/加载模型，不能把这段时间算入稳定吞吐。建议先准备一个患者级 pilot
+manifest（每个 split 均保留，约 50–100 位患者）测出本机每样本耗时，再按下面公式估算：
+
+```text
+实验一总时长 ≈ 实验一 pilot 时长 × 完整样本数 / pilot 样本数
+实验二总时长 ≈ 实验二 pilot 时长 × 完整样本数 / pilot 样本数
+实验三总时长 ≈ 实验三 pilot 时长 × (完整 N×K) / (pilot N×K)
+```
+
+不要随机抽切片造成患者泄漏；pilot 也应按 `patient_id` 整体抽取。缓存默认保留，模型
+导出中断后可以继续。
 
 实验一固定 512×512 输入。Qwen3-VL 缓存的空间表示为：
 
@@ -147,7 +179,7 @@ bash scripts/medical/run-qwen3vl-diagnostics.sh results
 
 ## 6. 设备与重跑控制
 
-可覆盖的设备变量：
+默认只需在 shell 顶部设置 `USER_SINGLE_GPU="cuda:0"`。需要重新拆到多卡时，才覆盖：
 
 ```bash
 export EXP1_LAFITE_DEVICE=cuda:0
