@@ -6,8 +6,9 @@ set -euo pipefail
 # Existing exported environment variables still take precedence over these
 # values, so cluster jobs can override them without modifying this file.
 # -----------------------------------------------------------------------------
-USER_MEDICAL_MANIFEST="/path/to/patient-level-manifest.jsonl"
-# Leave this empty to reuse USER_MEDICAL_MANIFEST for experiment three.
+USER_BMAD_DATA_ROOT=""
+# Leave these empty to use manifests made by prepare-bmad-hf-mirror.sh.
+USER_MEDICAL_MANIFEST=""
 USER_SEMANTIC_MANIFEST=""
 USER_LAFITE_CHECKPOINT="/path/to/ckpt_best.pth.tar"
 # Fill both thresholds with values selected on calibration/validation data.
@@ -26,8 +27,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 CONFIG_DIR="${REPO_DIR}/experiments/medical-diagnostics/qwen3-vl-8b"
 
-export MEDICAL_MANIFEST="${MEDICAL_MANIFEST:-${USER_MEDICAL_MANIFEST}}"
-export SEMANTIC_MANIFEST="${SEMANTIC_MANIFEST:-${USER_SEMANTIC_MANIFEST}}"
+BMAD_DATA_ROOT="${BMAD_DATA_ROOT:-${USER_BMAD_DATA_ROOT:-${REPO_DIR}/data/bmad}}"
+DEFAULT_MEDICAL_MANIFEST="${BMAD_DATA_ROOT}/prepared/medical-manifest.jsonl"
+DEFAULT_SEMANTIC_MANIFEST="${BMAD_DATA_ROOT}/prepared/semantic-manifest.jsonl"
+
+export MEDICAL_MANIFEST="${MEDICAL_MANIFEST:-${USER_MEDICAL_MANIFEST:-${DEFAULT_MEDICAL_MANIFEST}}}"
+export SEMANTIC_MANIFEST="${SEMANTIC_MANIFEST:-${USER_SEMANTIC_MANIFEST:-${DEFAULT_SEMANTIC_MANIFEST}}}"
 export LAFITE_CHECKPOINT="${LAFITE_CHECKPOINT:-${USER_LAFITE_CHECKPOINT}}"
 export LAFITE_MASK_THRESHOLD="${LAFITE_MASK_THRESHOLD:-${USER_LAFITE_MASK_THRESHOLD}}"
 export LAFITE_SCORE_THRESHOLD="${LAFITE_SCORE_THRESHOLD:-${USER_LAFITE_SCORE_THRESHOLD}}"
@@ -81,10 +86,6 @@ run_exp2() {
 
 run_exp3() {
   local started="${SECONDS}"
-  export SEMANTIC_MANIFEST="${SEMANTIC_MANIFEST:-${MEDICAL_MANIFEST:-}}"
-  if [[ -z "${SEMANTIC_MANIFEST}" ]]; then
-    export SEMANTIC_MANIFEST="${MEDICAL_MANIFEST:-}"
-  fi
   require_var SEMANTIC_MANIFEST
   "${LAFITE_PYTHON}" -m medical_experiments validate-manifest "${SEMANTIC_MANIFEST}" --check-paths --require-semantics
   "${LAFITE_PYTHON}" -m medical_experiments export-semantic-scores --config "${CONFIG_DIR}/exp3-export-scores.yaml"

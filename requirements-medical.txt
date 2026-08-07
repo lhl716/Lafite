@@ -13,6 +13,7 @@ nibabel>=5.1
 pydicom>=2.4
 transformers>=4.57
 accelerate>=1.1
+huggingface_hub>=0.34
 
 # Test runner; the source tests also work with unittest.
 pytest>=7.4

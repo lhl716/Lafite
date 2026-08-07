@@ -1,4 +1,4 @@
-manifest: ${MEDICAL_MANIFEST}
+manifest: ${MEDICAL_MANIFEST:-../../../data/bmad/prepared/medical-manifest.jsonl}
 output_dir: ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp1/cache/qwen3vl
 device: ${EXP1_QWEN_DEVICE:-cuda:1}
 overwrite: false

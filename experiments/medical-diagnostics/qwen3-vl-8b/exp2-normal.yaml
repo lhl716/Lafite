@@ -1,4 +1,4 @@
-manifest: ${MEDICAL_MANIFEST}
+manifest: ${MEDICAL_MANIFEST:-../../../data/bmad/prepared/medical-manifest.jsonl}
 output_dir: ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp2/normal
 split: test
 cohort: normal

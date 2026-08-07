@@ -37,7 +37,54 @@ pip install -r requirements.txt
 bash scripts/medical/run-smoke-suite.sh
 ```
 
-## 2. 准备 manifest
+## 2. 一键准备 BMAD Brain MRI 与 Liver CT
+
+仓库默认使用 BMAD 的 Brain MRI 和 Liver CT 两个带像素级 mask 的子集。完整 BMAD
+压缩包约 20.3 GiB；脚本会通过 `hf-mirror.com` 下载固定 revision，并且只解压
+`Brain/` 和 `Liver/`。请至少预留约 30 GiB 空间。
+
+先安装依赖，再打开 `scripts/medical/prepare-bmad-hf-mirror.sh`。阅读 BMAD 与原始数据源
+条款后，把：
+
+```bash
+USER_ACCEPT_BMAD_LICENSE="true"
+```
+
+然后一条命令完成下载、患者级重划分、mask 派生与两个 manifest 的生成：
+
+```bash
+bash scripts/medical/prepare-bmad-hf-mirror.sh
+```
+
+默认输出：
+
+```text
+data/bmad/prepared/medical-manifest.jsonl
+data/bmad/prepared/semantic-manifest.jsonl
+data/bmad/prepared/preparation-summary.json
+```
+
+下载支持缓存和断点续传，原始压缩包会保留。由于 BMAD 原始 valid/test 病人存在交叉，
+准备器按数据集和患者异常状态分层，重新进行确定性的 70/10/20 患者级划分；因此该
+manifest 用于本文三个诊断实验，但不能冒充官方 BMAD benchmark split。
+
+单卡先做 pilot 时，可以在同一脚本顶部设置：
+
+```bash
+USER_MAX_SLICES_PER_PATIENT="4"
+USER_SEMANTIC_PATIENTS_PER_EDGE="25"
+```
+
+前者限制每位患者用于实验一、二的切片数；后者限制实验三每个
+`organ×finding` 组合的患者数。`0` 表示保留完整数据。更改这两个值后重新运行会重写
+prepared manifest 和派生 mask，不会重新下载压缩包。
+
+注意：Liver 子集是预处理后的 PNG，不再具有原始 HU 数值，manifest 因而使用
+`CT_PNG` modality，不执行 HU window。脚本生成的 `nuisance_mask` 只覆盖体外黑色背景，
+`placebo_allowed_mask` 来自前景区域；它们是保守的候选干预区域。论文中的因果结论前，
+必须抽样可视化审核，必要时替换为人工/解剖学 mask。
+
+## 3. 自备数据时的 manifest 格式
 
 实验一、二至少需要：
 
@@ -59,14 +106,15 @@ bash scripts/medical/run-smoke-suite.sh
 - CT 窗当前固定为 `[level=40, width=400]`，换器官或协议时应先修改全部配置，
   保证三项实验的预处理一致。
 
-## 3. 在运行脚本中设置路径和阈值
+## 4. 在运行脚本中设置路径和阈值
 
 打开 `scripts/medical/run-qwen3vl-diagnostics.sh`，只修改文件顶部的
 `User settings` 区域：
 
 ```bash
-USER_MEDICAL_MANIFEST="/data/project/manifest.jsonl"
-USER_SEMANTIC_MANIFEST="/data/project/semantic-manifest.jsonl"
+USER_BMAD_DATA_ROOT=""
+USER_MEDICAL_MANIFEST=""
+USER_SEMANTIC_MANIFEST=""
 USER_LAFITE_CHECKPOINT="/data/checkpoints/ckpt_best.pth.tar"
 USER_LAFITE_MASK_THRESHOLD="0.25"
 USER_LAFITE_SCORE_THRESHOLD="0.50"
@@ -77,14 +125,16 @@ USER_QWEN_ATTENTION="sdpa"
 USER_LAFITE_PYTHON="python3"
 ```
 
-如果语义字段已经在主 manifest 中，保持 `USER_SEMANTIC_MANIFEST=""` 即可。
+三个数据路径都留空时，运行脚本自动使用 `data/bmad/prepared/` 中的两个 manifest。
+若数据准备在其他位置，只设置 `USER_BMAD_DATA_ROOT`；使用自备数据时才分别填写两个
+manifest 路径。
 如果 Qwen 权重已在本地，把 `USER_MLLM_MODEL_ID` 改成本地目录。脚本仍允许同名环境
 变量覆盖这些值，因此 Slurm 等调度任务不需要修改仓库文件。
 
 mask threshold 和 score threshold 的示例数字不是通用阈值，必须替换为 calibration/val
 集的结果。脚本故意把它们默认留空，避免无意中在 test 集使用示例阈值。
 
-## 4. 运行三个实验
+## 5. 运行三个实验
 
 建议先逐项运行，便于发现数据问题：
 
@@ -100,7 +150,7 @@ bash scripts/medical/run-qwen3vl-diagnostics.sh exp3
 bash scripts/medical/run-qwen3vl-diagnostics.sh all
 ```
 
-### 4.1 单卡大致耗时
+### 5.1 单卡大致耗时
 
 耗时主要由样本数 `N` 和实验三候选 finding 数 `K` 决定。以下只是
 **A100-80GB、512×512、Qwen3-VL-8B、SDPA 的量级预估**，不是本仓库在你的数据上的
@@ -145,7 +195,7 @@ manifest（每个 split 均保留，约 50–100 位患者）测出本机每样�
 }
 ```
 
-## 5. 查看结果
+## 6. 查看结果
 
 一条命令打印三项核心指标：
 
@@ -177,7 +227,7 @@ bash scripts/medical/run-qwen3vl-diagnostics.sh results
 这些 gate 不能仅凭一个点估计判定。患者数、bootstrap CI、编辑质量和预注册阈值必须
 一起检查。
 
-## 6. 设备与重跑控制
+## 7. 设备与重跑控制
 
 默认只需在 shell 顶部设置 `USER_SINGLE_GPU="cuda:0"`。需要重新拆到多卡时，才覆盖：
 

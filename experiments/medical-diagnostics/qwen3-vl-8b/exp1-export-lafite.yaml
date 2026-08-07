@@ -1,4 +1,4 @@
-manifest: ${MEDICAL_MANIFEST}
+manifest: ${MEDICAL_MANIFEST:-../../../data/bmad/prepared/medical-manifest.jsonl}
 lafite_config: ../../MVTec-LafitE/config.yaml
 checkpoint: ${LAFITE_CHECKPOINT}
 output_dir: ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp1/cache/lafite

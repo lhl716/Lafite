@@ -18,6 +18,7 @@ venv/
 /checkpoints/
 /membank/
 /datasets/
+/data/
 *.pth
 *.pth.tar
 *.ckpt

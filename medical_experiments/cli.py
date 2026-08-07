@@ -104,6 +104,25 @@ def _make_smoke_data(args: argparse.Namespace) -> int:
     return _run_configured(args, generate_smoke_data)
 
 
+def _prepare_bmad(args: argparse.Namespace) -> int:
+    from .bmad_prepare import run_bmad_preparation
+
+    result = run_bmad_preparation(
+        Path(args.data_root),
+        accept_license=args.accept_license,
+        endpoint=args.endpoint,
+        repo_id=args.repo_id,
+        revision=args.revision,
+        seed=args.seed,
+        max_slices_per_patient=args.max_slices_per_patient,
+        semantic_patients_per_edge=args.semantic_patients_per_edge,
+        skip_download=args.skip_download,
+        archive=Path(args.archive) if args.archive else None,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m medical_experiments",
@@ -127,6 +146,23 @@ def build_parser() -> argparse.ArgumentParser:
     split.add_argument("--seed", type=int, default=42)
     split.add_argument("--stratify")
     split.set_defaults(handler=_split)
+
+    bmad = subparsers.add_parser(
+        "prepare-bmad", help="download and prepare BMAD Brain MRI + Liver CT-PNG"
+    )
+    bmad.add_argument("--data-root", required=True)
+    bmad.add_argument("--endpoint", default="https://hf-mirror.com")
+    bmad.add_argument("--repo-id", default="code-dev05/BMAD")
+    bmad.add_argument(
+        "--revision", default="22cb97e1cfeeb9f677c6c57387347ce727625610"
+    )
+    bmad.add_argument("--seed", type=int, default=42)
+    bmad.add_argument("--max-slices-per-patient", type=int, default=0)
+    bmad.add_argument("--semantic-patients-per-edge", type=int, default=0)
+    bmad.add_argument("--archive", help="use an existing bmad.zip")
+    bmad.add_argument("--skip-download", action="store_true")
+    bmad.add_argument("--accept-license", action="store_true")
+    bmad.set_defaults(handler=_prepare_bmad)
 
     for name, help_text, handler in (
         ("export-lafite", "cache LafitE aligned/reconstructed features", _export_lafite),
