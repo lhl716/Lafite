@@ -372,3 +372,17 @@ seen CI 以患者为重采样单位；unseen CI 优先进行 `organ × finding` 
 - 当前 LafitE 是 2D，2.5D 可用于 pilot，但不能替代最终 3D 验证；
 - 实验三内置 learned embedding 把 region 当证据代理，只是强控制模型；真实 LLM 必须走四条件 precomputed score；
 - feature/intervention cache 可能包含患者衍生信息，已被 `.gitignore` 排除，仍应存放在合规受控目录。
+
+## 9. Qwen3-VL-8B 实际运行入口
+
+仓库已经提供固定到 Qwen3-VL-8B 内部层的正式配置，而不再要求用户自行编写 factory：
+
+```bash
+bash scripts/medical/run-qwen3vl-diagnostics.sh exp1
+bash scripts/medical/run-qwen3vl-diagnostics.sh exp2
+bash scripts/medical/run-qwen3vl-diagnostics.sh exp3
+bash scripts/medical/run-qwen3vl-diagnostics.sh results
+```
+
+环境安装、阈值来源、四卡分配、逐项输出解释与常见错误见
+[`qwen3vl-medical-diagnostics-runbook.md`](qwen3vl-medical-diagnostics-runbook.md)。

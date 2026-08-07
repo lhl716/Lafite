@@ -1,0 +1,60 @@
+cache_paths:
+  - ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp1/cache/merged
+stage_keys:
+  vision_early: qwen_vision_early
+  vision_last: qwen_vision_last
+  projector: qwen_projector
+  llm_mid: qwen_llm_18
+  llm_deep: qwen_llm_36
+  residual: lafite_residual
+stage_layouts:
+  vision_early: NLC
+  vision_last: NLC
+  projector: NLC
+  llm_mid: NLC
+  llm_deep: NLC
+  residual: NCHW
+stage_grids:
+  vision_early: [32, 32]
+  vision_last: [32, 32]
+  projector: [16, 16]
+  llm_mid: [16, 16]
+  llm_deep: [16, 16]
+target_grid: [32, 32]
+channel_budget: 64
+channel_projection:
+  type: orthogonal
+  seed: 2160
+feature_sets:
+  vision_early: [vision_early]
+  vision_last: [vision_last]
+  projector: [projector]
+  llm_mid: [llm_mid]
+  llm_deep: [llm_deep]
+  projector_plus_residual: [projector, residual]
+  llm_deep_plus_residual: [llm_deep, residual]
+mask_key: mask
+normalize_features: true
+device: ${EXP1_PROBE_DEVICE:-cuda:0}
+seed: 133
+probe:
+  type: linear
+  epochs: 50
+  batch_size: 8
+  learning_rate: 0.01
+  patience: 8
+  pos_weight: auto
+  threshold: auto
+small_lesion:
+  max_fraction: 0.025
+  min_overlap: 0.1
+spatial_shuffle_control:
+  enabled: true
+  seed: 1142
+coordinate_control:
+  enabled: true
+  include_radius: true
+random_feature_control:
+  enabled: true
+coarse_label_key: modality
+summary: ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp1/probe-summary.json

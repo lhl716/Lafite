@@ -1,0 +1,29 @@
+manifest: ${MEDICAL_MANIFEST}
+output_dir: ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp2/positive
+split: test
+cohort: positive
+seed: 42
+overwrite: false
+require_nuisance_mask: true
+interventions:
+  removal_method: local_gaussian
+  nuisance_mode: gaussian_noise
+  nuisance_strength: 0.10
+  dilation_radius: 3
+  gaussian_sigma: 2.0
+  blend_sigma: 0.75
+  protection_threshold: 0.05
+  placebo_mass_tolerance: 0.05
+  placebo_max_outside: 0.05
+model_factory: medical_experiments.factories.lafite:make_lafite_predictor
+factory_kwargs:
+  lafite_config: ../../MVTec-LafitE/config.yaml
+  checkpoint: ${LAFITE_CHECKPOINT}
+  device: ${EXP2_LAFITE_DEVICE:-cuda:2}
+  score_reduction: topk_mean
+  topk_fraction: 0.01
+  mask_threshold: ${LAFITE_MASK_THRESHOLD}
+  preprocessing:
+    ct_windows:
+      - [40, 400]
+summary: ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp2/positive-summary.json

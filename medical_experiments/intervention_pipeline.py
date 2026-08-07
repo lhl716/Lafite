@@ -257,8 +257,13 @@ def run_intervention_pipeline(config: Mapping[str, Any]) -> Dict[str, Any]:
                     mask_dir.mkdir(parents=True, exist_ok=True)
                     mask_path = mask_dir / (safe_sample_name(sample_id + "-" + variant) + ".npy")
                     if mask_path.exists() and not overwrite:
-                        raise FileExistsError("predicted mask exists: %s" % mask_path)
-                    np.save(str(mask_path), np.asarray(predicted_mask), allow_pickle=False)
+                        previous_mask = np.load(str(mask_path), allow_pickle=False)
+                        if not np.allclose(previous_mask, np.asarray(predicted_mask)):
+                            raise FileExistsError(
+                                "predicted mask exists with different values: %s" % mask_path
+                            )
+                    else:
+                        np.save(str(mask_path), np.asarray(predicted_mask), allow_pickle=False)
                     row["mask"] = str(mask_path.resolve())
                 row.update(prediction)
             output_records.append(row)

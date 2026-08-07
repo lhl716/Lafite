@@ -1,0 +1,24 @@
+manifest: ${MEDICAL_MANIFEST}
+output_dir: ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp1/cache/qwen3vl
+device: ${EXP1_QWEN_DEVICE:-cuda:1}
+overwrite: false
+preprocess_target_fields: [finding, report, label, target, ground_truth, mask]
+factory: medical_experiments.factories.qwen3_vl:build_feature_bundle
+factory_kwargs:
+  model_id: ${MLLM_MODEL_ID:-Qwen/Qwen3-VL-8B-Instruct}
+  dtype: bfloat16
+  attn_implementation: ${QWEN_ATTENTION:-sdpa}
+  image_size: 512
+  llm_layers: [18, 36]
+taps:
+  - name: qwen_vision_early
+    module: model.visual.blocks.2
+  - name: qwen_vision_last
+    module: model.visual.blocks.26
+  - name: qwen_projector
+    module: model.visual.merger
+preprocessing:
+  ct_windows:
+    - [40, 400]
+  slice_offsets: [-1, 0, 1]
+summary: ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp1/export-qwen-summary.json

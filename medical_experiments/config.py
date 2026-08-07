@@ -3,11 +3,34 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 from pathlib import Path
 from typing import Any, Dict, Mapping, MutableMapping, Union
 
 
 PathLike = Union[str, Path]
+
+
+_ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
+
+
+def _expand_environment(text: str, source: Path) -> str:
+    """Expand ``${NAME}`` and ``${NAME:-default}`` without shell evaluation."""
+
+    def replace(match: "re.Match[str]") -> str:
+        name = match.group(1)
+        default = match.group(2)
+        value = os.environ.get(name)
+        if value:
+            return value
+        if default is not None:
+            return default
+        raise ValueError(
+            "Environment variable %s is required by config %s" % (name, source)
+        )
+
+    return _ENV_PATTERN.sub(replace, text)
 
 
 def load_config(path: PathLike) -> Dict[str, Any]:
@@ -16,14 +39,15 @@ def load_config(path: PathLike) -> Dict[str, Any]:
     config_path = Path(path).expanduser().resolve()
     suffix = config_path.suffix.lower()
     with config_path.open("r", encoding="utf-8") as handle:
+        text = _expand_environment(handle.read(), config_path)
         if suffix == ".json":
-            data = json.load(handle)
+            data = json.loads(text)
         elif suffix in {".yaml", ".yml"}:
             try:
                 import yaml
             except ImportError as exc:  # pragma: no cover - environment specific
                 raise RuntimeError("PyYAML is required to read YAML configs") from exc
-            data = yaml.safe_load(handle)
+            data = yaml.safe_load(text)
         else:
             raise ValueError("Config must be .json, .yaml, or .yml: %s" % config_path)
 

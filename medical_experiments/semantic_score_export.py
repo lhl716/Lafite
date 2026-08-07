@@ -70,8 +70,15 @@ def export_semantic_scores(config: Mapping[str, Any]) -> Dict[str, Any]:
     output = []
     for record in records:
         enriched = dict(record)
+        scorer_record = dict(record)
+        for path_field in ("image", "mask", "feature_cache", "lesion_feature"):
+            if scorer_record.get(path_field):
+                value = Path(str(scorer_record[path_field])).expanduser()
+                if not value.is_absolute():
+                    value = manifest_path.parent / value
+                scorer_record[path_field] = str(value.resolve())
         for (evidence_present, knowledge_intact), field in CONDITION_FIELDS.items():
-            visible = _visible_record(record, evidence_present, config)
+            visible = _visible_record(scorer_record, evidence_present, config)
             raw_scores = scorer(
                 visible,
                 list(candidates),

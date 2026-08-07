@@ -1,0 +1,18 @@
+manifest: ${SEMANTIC_MANIFEST}
+output_manifest: ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp3/qwen3vl-scores.jsonl
+model_factory: medical_experiments.factories.qwen3_vl:make_semantic_scorer
+factory_kwargs:
+  model_id: ${MLLM_MODEL_ID:-Qwen/Qwen3-VL-8B-Instruct}
+  device: ${EXP3_QWEN_DEVICE:-cuda:3}
+  dtype: bfloat16
+  attn_implementation: ${QWEN_ATTENTION:-sdpa}
+  image_size: 512
+  seed: 3407
+  knowledge: {}
+  preprocessing:
+    ct_windows:
+      - [40, 400]
+    slice_offsets: [-1, 0, 1]
+target_fields: [finding, report, label, target, ground_truth]
+evidence_fields: [image, mask, feature_cache, lesion_feature, region, slice_index]
+summary: ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp3/export-summary.json

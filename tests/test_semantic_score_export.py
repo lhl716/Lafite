@@ -54,6 +54,8 @@ class SemanticScoreExportTest(unittest.TestCase):
         self.assertEqual(result["samples"], 2)
         self.assertEqual(len(calls), 8)
         self.assertTrue(all("finding" not in record and "report" not in record for record, _, _ in calls))
+        with_image_records = [record for record, evidence, _ in calls if evidence]
+        self.assertTrue(all(Path(record["image"]).is_absolute() for record in with_image_records))
         no_image_records = [record for record, evidence, _ in calls if not evidence]
         self.assertTrue(all("image" not in record and "region" not in record for record in no_image_records))
         self.assertIn("scores_no_image_shuffled_knowledge", exported[0])

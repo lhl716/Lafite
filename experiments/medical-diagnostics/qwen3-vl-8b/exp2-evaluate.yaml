@@ -1,0 +1,21 @@
+input_paths:
+  - ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp2/positive/model_outputs.jsonl
+  - ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp2/normal/model_outputs.jsonl
+format: jsonl
+decision_threshold: ${LAFITE_SCORE_THRESHOLD}
+bootstrap:
+  iterations: 2000
+  confidence: 0.95
+  seed: 19
+red_flag_rules:
+  min_lesion_score_drop: 0.10
+  max_nuisance_mean_abs_delta: 0.05
+  max_placebo_mean_abs_delta: 0.05
+  min_nuisance_mask_dice: 0.80
+  min_placebo_mask_dice: 0.80
+  max_nuisance_to_lesion_ratio: 0.50
+  min_mask_patient_coverage: 0.80
+  max_normal_nuisance_fpr_increase_pp: 5.0
+  max_normal_placebo_fpr_increase_pp: 5.0
+  min_paired_patients: 20
+summary: ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp2/evaluation-summary.json

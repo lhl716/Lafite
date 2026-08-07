@@ -1,0 +1,26 @@
+manifest: ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp3/qwen3vl-scores.jsonl
+output_dir: ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp3/evaluation
+seed: 23
+num_edges: 1
+top_k: [1, 3, 5]
+seen_eval_fraction: 0.20
+bootstrap:
+  iterations: 2000
+  confidence: 0.95
+  seed: 2301
+baselines:
+  - name: uniform
+    type: uniform
+  - name: frequency
+    type: train_frequency
+    kwargs:
+      alpha: 1.0
+  - name: small_embedding
+    type: learned_embedding
+    kwargs:
+      embedding_dim: 16
+      epochs: 80
+      learning_rate: 0.05
+  - name: qwen3vl
+    type: precomputed
+summary: ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp3/evaluation-summary.json

@@ -11,7 +11,8 @@ torch>=2.1
 # Optional medical volume and MLLM adapters.
 nibabel>=5.1
 pydicom>=2.4
-transformers>=4.45
+transformers>=4.57
+accelerate>=1.1
 
 # Test runner; the source tests also work with unittest.
 pytest>=7.4
