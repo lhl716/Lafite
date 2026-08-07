@@ -1,0 +1,15 @@
+manifest: ../../outputs/medical-smoke/manifest.jsonl
+output_dir: ../../outputs/medical-smoke/generated-interventions
+split: test
+cohort: positive
+seed: 42
+overwrite: true
+require_nuisance_mask: false
+interventions:
+  removal_method: normal_reference
+  nuisance_mode: gaussian_noise
+  nuisance_strength: 0.10
+  dilation_radius: 0
+  gaussian_sigma: 1.5
+  blend_sigma: 0.5
+summary: ../../outputs/medical-smoke/generated-interventions/summary.json

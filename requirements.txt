@@ -1,0 +1,14 @@
+easydict
+opencv_python_headless
+tabulate
+einops
+faiss_gpu
+matplotlib
+numpy
+torch
+torchvision
+scipy
+tqdm
+PYYAML
+scikit-learn
+scikit-image

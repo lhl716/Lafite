@@ -1,0 +1,27 @@
+manifest: ../../outputs/medical-smoke/semantic_manifest.jsonl
+output_dir: ../../outputs/medical-smoke/exp3
+seed: 23
+held_out_edges:
+  - [organ_a, finding_x]
+top_k: [1, 2, 3]
+seen_eval_fraction: 0.25
+bootstrap:
+  iterations: 200
+  confidence: 0.95
+  seed: 2301
+baselines:
+  - name: uniform
+    type: uniform
+  - name: frequency
+    type: train_frequency
+    kwargs:
+      alpha: 1.0
+  - name: small_embedding
+    type: learned_embedding
+    kwargs:
+      embedding_dim: 8
+      epochs: 12
+      learning_rate: 0.05
+  - name: synthetic_precomputed
+    type: precomputed
+summary: ../../outputs/medical-smoke/exp3-cli-summary.json

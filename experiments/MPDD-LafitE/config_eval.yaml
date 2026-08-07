@@ -1,0 +1,121 @@
+version: v1.0.0
+random_seed: 133
+port: 11113
+
+membank_dir: xxx/membank/MPDD/
+
+dataset:
+  type: custom
+
+  image_reader:
+    type: opencv
+    kwargs:
+      image_dir: xxx/MPDD
+      color_mode: RGB
+
+  train:
+    meta_file: ./data/MPDD/train.json
+    rebalance: False
+    hflip: False
+    vflip: False
+    rotate: False
+
+  test:
+    meta_file: ./data/MPDD/test.json
+
+
+  input_size: [224, 224] # [h,w]
+  pixel_mean: [0.485, 0.456, 0.406]
+  pixel_std: [0.229, 0.224, 0.225]
+  batch_size: 64
+  workers: 4 # number of workers of dataloader for each process
+
+criterion:
+  - name: DiffusionLoss
+    type: DiffusionLoss
+    kwargs:
+      weight: 1.0
+
+trainer:
+  max_epoch: 1000
+  clip_max_norm: 0.1
+  val_freq_epoch: 100
+  print_freq_step: 1
+  tb_freq_step: 1
+  lr_scheduler:
+    type: StepLR
+    kwargs:
+      step_size: 800
+      gamma: 0.1
+  optimizer:
+    type: AdamW
+    kwargs:
+      lr: 0.0001
+      betas: [0.9, 0.999]
+      weight_decay: 0.0001
+
+saver:
+  auto_resume: False
+  always_save: False
+  load_path: checkpoints/ckpt.pth.tar
+  save_dir: checkpoints/
+  log_dir: log_eval/
+
+evaluator:
+  save_dir: result_eval_temp
+  key_metric: mean_pixel_auc
+  metrics:
+    auc:
+      - name: pro
+      - name: mean
+      - name: std
+      - name: max
+        kwargs:
+          avgpool_size: [16, 16]
+      - name: pixel
+  vis_compound:
+    save_dir: vis_compound_eval
+    max_score: null
+    min_score: null
+  # vis_single:
+  #   save_dir: vis_single_eval
+  #   max_score: null
+  #   min_score: null
+
+frozen_layers: [backbone]
+
+net:
+    - name: backbone
+      type: lib.models.backbones.efficientnet_b4
+      frozen: True
+      kwargs:
+        pretrained: True
+        pretrained_model: xxx/efficientnet-b4-6ed6700e.pth
+        # select outlayers from: resnet [1,2,3,4], efficientnet [1,2,3,4,5]
+        # empirically, for industrial: resnet [1,2,3] or [2,3], efficientnet [1,2,3,4] or [2,3,4]
+        outlayers: [1,2,3,4]
+    - name: neck
+      prev: backbone
+      type: lib.models.necks.MFCN
+      kwargs:
+        outstrides: [7]   # input_size of unet: img_size(224) / outstrides(7) = 32
+        # out_bn: True
+    - name: reconstruction
+      prev: neck
+      type: lib.models.reconstructions.UNetGD
+      kwargs:
+        dim: 256
+        dim_mults: [1,2,3,4]
+        image_size: 32    # input_size of unet: img_size(224) / outstrides(7) = 32
+        self_condition: False
+        timesteps: 1000
+        use_input_norm: False
+        infer_time: 860
+        infer_use_ema: False
+        sampling_timesteps: 6
+        ddim_sampling_eta: 1
+        # save npy features
+        save_recon:
+          save_dir: result_recon
+        initializer:
+          method: xavier_normal

@@ -1,0 +1,17 @@
+# Diagnostic core. Install the original requirements.txt separately when
+# training the full LafitE model (its faiss_gpu package is CUDA-specific).
+numpy>=1.23
+scipy>=1.9
+scikit-learn>=1.2
+scikit-image>=0.20
+Pillow>=9.5
+PyYAML>=6.0
+torch>=2.1
+
+# Optional medical volume and MLLM adapters.
+nibabel>=5.1
+pydicom>=2.4
+transformers>=4.45
+
+# Test runner; the source tests also work with unittest.
+pytest>=7.4

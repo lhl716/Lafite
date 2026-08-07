@@ -1,0 +1,23 @@
+manifest: /path/to/patient-level-manifest.jsonl
+output_dir: ../../feature_cache/mllm
+device: cuda:0
+overwrite: false
+# These fields are removed before the model-specific preprocess/prompt builder.
+preprocess_target_fields: [finding, report, label, target, ground_truth, mask]
+
+# Implement this factory for the selected MLLM. See docs/medical-diagnostic-experiments.md.
+factory: your_package.mllm_factory:build_bundle
+factory_kwargs:
+  model_path: /path/to/frozen-medical-mllm
+taps:
+  - name: vision_early
+    module: vision_tower.encoder.layers.2
+  - name: vision_last
+    module: vision_tower.encoder.layers.23
+  - name: projector
+    module: multi_modal_projector
+preprocessing:
+  ct_windows:
+    - [40, 400]
+  slice_offsets: [-1, 0, 1]
+summary: ../../outputs/medical/exports/mllm-summary.json

@@ -1,0 +1,20 @@
+input_path: ../../outputs/medical-smoke/model_outputs.jsonl
+format: jsonl
+decision_threshold: 0.50
+bootstrap:
+  iterations: 200
+  confidence: 0.95
+  seed: 19
+red_flag_rules:
+  min_lesion_score_drop: 0.10
+  max_nuisance_mean_abs_delta: 0.05
+  max_placebo_mean_abs_delta: 0.05
+  min_nuisance_mask_dice: 0.80
+  min_placebo_mask_dice: 0.80
+  max_nuisance_to_lesion_ratio: 0.50
+  min_mask_patient_coverage: 0.95
+  max_normal_nuisance_fpr_increase_pp: 5.0
+  max_normal_placebo_fpr_increase_pp: 5.0
+  # Reduced only for the tiny smoke dataset. Use >=20 for the real pilot.
+  min_paired_patients: 4
+summary: ../../outputs/medical-smoke/exp2-summary.json

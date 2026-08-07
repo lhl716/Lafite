@@ -1,0 +1,52 @@
+cache_paths:
+  - ../../outputs/medical-smoke/detail_cache
+stage_keys:
+  encoder_early: encoder_early
+  projector: projector
+  llm_deep: llm_deep
+  lafite_residual: lafite_residual
+stage_layouts:
+  encoder_early: NCHW
+  projector: NCHW
+  llm_deep: NCHW
+  lafite_residual: NCHW
+target_grid: [16, 16]
+channel_budget: 4
+channel_projection:
+  type: orthogonal
+  seed: 2160
+feature_sets:
+  encoder_early: [encoder_early]
+  projector: [projector]
+  llm_deep: [llm_deep]
+  projector_plus_residual: [projector, lafite_residual]
+metadata_keys:
+  sample_id: sample_id
+  patient_id: patient_id
+  split: split
+mask_key: mask
+normalize_features: true
+device: cpu
+torch_num_threads: 1
+seed: 133
+probe:
+  type: linear
+  epochs: 8
+  batch_size: 8
+  learning_rate: 0.01
+  patience: 3
+  pos_weight: auto
+  threshold: auto
+small_lesion:
+  max_fraction: 0.025
+  min_overlap: 0.1
+spatial_shuffle_control:
+  enabled: true
+  seed: 1142
+coordinate_control:
+  enabled: true
+  include_radius: true
+random_feature_control:
+  enabled: true
+coarse_label_key: modality
+summary: ../../outputs/medical-smoke/exp1-summary.json

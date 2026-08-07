@@ -1,0 +1,14 @@
+manifest: /path/to/patient-level-manifest.jsonl
+lafite_config: ../MVTec-LafitE/config.yaml
+checkpoint: /path/to/ckpt_best.pth.tar
+output_dir: ../../feature_cache/lafite
+device: cuda:0
+mode: reconstruction
+require_mask: true
+overwrite: false
+preprocessing:
+  # Choose windows for the actual organ/protocol before viewing test results.
+  ct_windows:
+    - [40, 400]
+  slice_offsets: [-1, 0, 1]
+summary: ../../outputs/medical/exports/lafite-summary.json

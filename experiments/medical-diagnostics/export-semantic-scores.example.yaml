@@ -1,0 +1,10 @@
+manifest: /path/to/compositional-records.jsonl
+output_manifest: ../../outputs/medical/semantic/with-mllm-scores.jsonl
+model_factory: your_package.semantic_factory:build_scorer
+factory_kwargs:
+  model_path: /path/to/frozen-medical-mllm
+# The exporter strips these before every model call.
+target_fields: [finding, report, label, target, ground_truth]
+# These are additionally removed for no-image calls.
+evidence_fields: [image, mask, feature_cache, lesion_feature, region, slice_index]
+summary: ../../outputs/medical/semantic/export-summary.json

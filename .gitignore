@@ -1,0 +1,32 @@
+__pycache__/
+*.py[cod]
+*.so
+.DS_Store
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local environments and editor state
+.venv/
+venv/
+.idea/
+.vscode/
+
+# Experiment outputs, checkpoints, and downloaded clinical data
+/outputs/
+/results/
+/checkpoints/
+/membank/
+/datasets/
+*.pth
+*.pth.tar
+*.ckpt
+*.safetensors
+*.nii
+*.nii.gz
+*.dcm
+
+# Feature caches can contain patient-derived data
+/feature_cache/
+/interventions_cache/
+/medical_experiments_cache/

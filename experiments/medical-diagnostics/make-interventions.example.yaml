@@ -1,0 +1,38 @@
+manifest: /path/to/patient-level-manifest.jsonl
+output_dir: ../../outputs/medical/interventions/lafite
+split: test
+cohort: positive
+seed: 42
+overwrite: false
+# Formal experiments should predeclare the non-clinical editable region.
+require_nuisance_mask: true
+interventions:
+  # This setting requires normal_reference on every selected positive record.
+  # Use local_gaussian explicitly when a matched reference is unavailable.
+  removal_method: normal_reference
+  nuisance_mode: gaussian_noise
+  nuisance_strength: 0.10
+  dilation_radius: 3
+  gaussian_sigma: 2.0
+  blend_sigma: 0.75
+  # Any soft-mask value above this threshold is protected from nuisance edits.
+  protection_threshold: 0.05
+  # Explicit placebo masks must match lesion mass and remain in the optional
+  # per-record placebo_allowed_mask (for example, the same organ/tissue).
+  placebo_mass_tolerance: 0.05
+  placebo_max_outside: 0.05
+
+# Optional: omit these fields to generate variants without scoring them.
+model_factory: medical_experiments.factories.lafite:make_lafite_predictor
+factory_kwargs:
+  lafite_config: ../MVTec-LafitE/config.yaml
+  checkpoint: /path/to/ckpt_best.pth.tar
+  device: cuda:0
+  score_reduction: topk_mean
+  topk_fraction: 0.01
+  # Must be selected on a calibration set, never on the test pairs.
+  mask_threshold: 0.25
+  preprocessing:
+    ct_windows:
+      - [40, 400]
+summary: ../../outputs/medical/interventions/lafite/generation-summary.json

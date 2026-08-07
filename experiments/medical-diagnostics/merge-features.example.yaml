@@ -1,0 +1,9 @@
+sources:
+  - cache_dir: ../../feature_cache/mllm
+    include: [vision_early, vision_last, projector]
+  - cache_dir: ../../feature_cache/lafite
+    include: [feature_align, feature_rec, lafite_residual, mask]
+output_dir: ../../feature_cache/merged
+strict_sample_set: true
+overwrite: false
+summary: ../../outputs/medical/exports/merge-summary.json

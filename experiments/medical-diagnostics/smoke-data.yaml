@@ -1,0 +1,6 @@
+# Non-medical synthetic data used only to verify installation and command wiring.
+output_dir: ../../outputs/medical-smoke
+seed: 17
+num_patients: 36
+image_size: 16
+summary: ../../outputs/medical-smoke/generation-summary.json
