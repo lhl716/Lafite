@@ -1,4 +1,4 @@
-manifest: ${SEMANTIC_MANIFEST:-../../../data/bmad/prepared/semantic-manifest.jsonl}
+manifest: ${SEMANTIC_MANIFEST:-/data/oss_bucket_0/yunlin/dataset/bmad/prepared/semantic-manifest.jsonl}
 output_manifest: ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp3/qwen3vl-scores.jsonl
 model_factory: medical_experiments.factories.qwen3_vl:make_semantic_scorer
 factory_kwargs:

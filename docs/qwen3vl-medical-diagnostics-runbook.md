@@ -50,30 +50,28 @@ bash scripts/medical/run-smoke-suite.sh
 USER_ACCEPT_BMAD_LICENSE="true"
 ```
 
-推荐把下载与整理分成两步。第一步使用 Hugging Face CLI；脚本自动优先选择新版
-`hf`，并兼容旧版 `huggingface-cli`：
+推荐把下载与整理分成两步。第一步直接使用 `wget`/`curl`，避开 Python Hub/Xet
+大文件连接问题，并支持断点续传：
 
 ```bash
 bash scripts/medical/prepare-bmad-hf-mirror.sh download
 ```
 
-如果希望完全手动执行下载，新版 CLI 的等价命令是：
+如果希望完全手动执行下载，等价命令是：
 
 ```bash
 mkdir -p data/bmad/downloads
-HF_ENDPOINT=https://hf-mirror.com hf download code-dev05/BMAD bmad.zip \
-  --repo-type dataset \
-  --revision 22cb97e1cfeeb9f677c6c57387347ce727625610 \
-  --local-dir data/bmad/downloads
+wget -c --tries=20 --timeout=30 \
+  'https://hf-mirror.com/datasets/code-dev05/BMAD/resolve/22cb97e1cfeeb9f677c6c57387347ce727625610/bmad.zip?download=true' \
+  -O data/bmad/downloads/bmad.zip
 ```
 
-旧版 CLI 使用：
+没有 `wget` 时可以使用：
 
 ```bash
-HF_ENDPOINT=https://hf-mirror.com huggingface-cli download code-dev05/BMAD bmad.zip \
-  --repo-type dataset \
-  --revision 22cb97e1cfeeb9f677c6c57387347ce727625610 \
-  --local-dir data/bmad/downloads
+curl -L -C - --retry 20 --retry-all-errors --connect-timeout 30 \
+  -o data/bmad/downloads/bmad.zip \
+  'https://hf-mirror.com/datasets/code-dev05/BMAD/resolve/22cb97e1cfeeb9f677c6c57387347ce727625610/bmad.zip?download=true'
 ```
 
 第二步完全离线地校验压缩包、选择性解压、进行患者级重划分，并生成 mask 与 manifest：
@@ -88,12 +86,20 @@ bash scripts/medical/prepare-bmad-hf-mirror.sh prepare
 bash scripts/medical/prepare-bmad-hf-mirror.sh all
 ```
 
+当前服务器预设从 `/home/yunlin.lhl/dataset/bmad.zip` 读取压缩包，并把解压数据、
+派生 mask 和 manifest 写入 `/data/oss_bucket_0/yunlin/dataset/bmad`。下载已经完成时，
+只运行：
+
+```bash
+ACCEPT_BMAD_LICENSE=true bash scripts/medical/prepare-bmad-hf-mirror.sh prepare
+```
+
 默认输出：
 
 ```text
-data/bmad/prepared/medical-manifest.jsonl
-data/bmad/prepared/semantic-manifest.jsonl
-data/bmad/prepared/preparation-summary.json
+/data/oss_bucket_0/yunlin/dataset/bmad/prepared/medical-manifest.jsonl
+/data/oss_bucket_0/yunlin/dataset/bmad/prepared/semantic-manifest.jsonl
+/data/oss_bucket_0/yunlin/dataset/bmad/prepared/preparation-summary.json
 ```
 
 下载支持断点续传，原始压缩包会保留。如果你已在浏览器或其他服务器下载了

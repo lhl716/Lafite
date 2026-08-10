@@ -6,7 +6,7 @@ set -euo pipefail
 # Existing exported environment variables still take precedence over these
 # values, so cluster jobs can override them without modifying this file.
 # -----------------------------------------------------------------------------
-USER_BMAD_DATA_ROOT=""
+USER_BMAD_DATA_ROOT="/data/oss_bucket_0/yunlin/dataset/bmad"
 # Leave these empty to use manifests made by prepare-bmad-hf-mirror.sh.
 USER_MEDICAL_MANIFEST=""
 USER_SEMANTIC_MANIFEST=""
