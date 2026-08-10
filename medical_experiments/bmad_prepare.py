@@ -478,7 +478,7 @@ def run_bmad_preparation(
         if repo_id == BMAD_REPO_ID and revision == BMAD_REVISION and archive_bytes != BMAD_ARCHIVE_BYTES:
             raise ValueError(
                 f"BMAD archive has {archive_bytes} bytes; expected {BMAD_ARCHIVE_BYTES}. "
-                "The direct download is incomplete; rerun the wget/curl command to resume it."
+                "The download is incomplete; rerun the Hugging Face CLI download to resume it."
             )
         extracted = extract_bmad_subsets(archive_path, raw_root)
     elif not all((raw_root / subset).is_dir() for subset in BMAD_SUBSETS):

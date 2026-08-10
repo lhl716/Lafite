@@ -50,28 +50,30 @@ bash scripts/medical/run-smoke-suite.sh
 USER_ACCEPT_BMAD_LICENSE="true"
 ```
 
-推荐把下载与整理分成两步。第一步直接使用 `wget`/`curl`，避开 Python Hub/Xet
-大文件连接问题，并支持断点续传：
+推荐把下载与整理分成两步。第一步使用 Hugging Face CLI；脚本自动优先选择新版
+`hf`，并兼容旧版 `huggingface-cli`：
 
 ```bash
 bash scripts/medical/prepare-bmad-hf-mirror.sh download
 ```
 
-如果希望完全手动执行下载，等价命令是：
+如果希望完全手动执行下载，新版 CLI 的等价命令是：
 
 ```bash
 mkdir -p data/bmad/downloads
-wget -c --tries=20 --timeout=30 \
-  'https://hf-mirror.com/datasets/code-dev05/BMAD/resolve/22cb97e1cfeeb9f677c6c57387347ce727625610/bmad.zip?download=true' \
-  -O data/bmad/downloads/bmad.zip
+HF_ENDPOINT=https://hf-mirror.com hf download code-dev05/BMAD bmad.zip \
+  --repo-type dataset \
+  --revision 22cb97e1cfeeb9f677c6c57387347ce727625610 \
+  --local-dir data/bmad/downloads
 ```
 
-没有 `wget` 时可以使用：
+旧版 CLI 使用：
 
 ```bash
-curl -L -C - --retry 20 --retry-all-errors --connect-timeout 30 \
-  -o data/bmad/downloads/bmad.zip \
-  'https://hf-mirror.com/datasets/code-dev05/BMAD/resolve/22cb97e1cfeeb9f677c6c57387347ce727625610/bmad.zip?download=true'
+HF_ENDPOINT=https://hf-mirror.com huggingface-cli download code-dev05/BMAD bmad.zip \
+  --repo-type dataset \
+  --revision 22cb97e1cfeeb9f677c6c57387347ce727625610 \
+  --local-dir data/bmad/downloads
 ```
 
 第二步完全离线地校验压缩包、选择性解压、进行患者级重划分，并生成 mask 与 manifest：
