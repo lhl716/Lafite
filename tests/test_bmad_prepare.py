@@ -9,6 +9,7 @@ from PIL import Image
 from medical_experiments.bmad_prepare import (
     extract_bmad_subsets,
     prepare_bmad_manifests,
+    run_bmad_preparation,
 )
 from medical_experiments.manifest import read_jsonl, validate_manifest
 
@@ -113,6 +114,18 @@ class BmadPrepareTests(unittest.TestCase):
                 handle.writestr("Brain/../../escape.png", b"bad")
             with self.assertRaises(ValueError):
                 extract_bmad_subsets(archive, base / "raw")
+
+    def test_manual_archive_is_size_checked_before_extraction(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            archive = base / "bmad.zip"
+            archive.write_bytes(b"incomplete")
+            with self.assertRaisesRegex(ValueError, "expected 21840892398"):
+                run_bmad_preparation(
+                    base / "data",
+                    accept_license=True,
+                    archive=archive,
+                )
 
 
 if __name__ == "__main__":

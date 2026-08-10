@@ -472,6 +472,14 @@ def run_bmad_preparation(
     if archive_path is None and not skip_download:
         archive_path = download_bmad(data_root, repo_id=repo_id, revision=revision, endpoint=endpoint)
     if archive_path is not None:
+        if not archive_path.is_file():
+            raise FileNotFoundError(f"BMAD archive does not exist: {archive_path}")
+        archive_bytes = archive_path.stat().st_size
+        if repo_id == BMAD_REPO_ID and revision == BMAD_REVISION and archive_bytes != BMAD_ARCHIVE_BYTES:
+            raise ValueError(
+                f"BMAD archive has {archive_bytes} bytes; expected {BMAD_ARCHIVE_BYTES}. "
+                "The direct download is incomplete; rerun the wget/curl command to resume it."
+            )
         extracted = extract_bmad_subsets(archive_path, raw_root)
     elif not all((raw_root / subset).is_dir() for subset in BMAD_SUBSETS):
         raise FileNotFoundError(

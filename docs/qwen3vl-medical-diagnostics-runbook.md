@@ -50,10 +50,40 @@ bash scripts/medical/run-smoke-suite.sh
 USER_ACCEPT_BMAD_LICENSE="true"
 ```
 
-然后一条命令完成下载、患者级重划分、mask 派生与两个 manifest 的生成：
+推荐把下载与整理分成两步。第一步直接使用 `wget`/`curl`，避开 Python Hub/Xet
+大文件连接问题，并支持断点续传：
 
 ```bash
-bash scripts/medical/prepare-bmad-hf-mirror.sh
+bash scripts/medical/prepare-bmad-hf-mirror.sh download
+```
+
+如果希望完全手动执行下载，等价命令是：
+
+```bash
+mkdir -p data/bmad/downloads
+wget -c --tries=20 --timeout=30 \
+  'https://hf-mirror.com/datasets/code-dev05/BMAD/resolve/22cb97e1cfeeb9f677c6c57387347ce727625610/bmad.zip?download=true' \
+  -O data/bmad/downloads/bmad.zip
+```
+
+没有 `wget` 时可以使用：
+
+```bash
+curl -L -C - --retry 20 --retry-all-errors --connect-timeout 30 \
+  -o data/bmad/downloads/bmad.zip \
+  'https://hf-mirror.com/datasets/code-dev05/BMAD/resolve/22cb97e1cfeeb9f677c6c57387347ce727625610/bmad.zip?download=true'
+```
+
+第二步完全离线地校验压缩包、选择性解压、进行患者级重划分，并生成 mask 与 manifest：
+
+```bash
+bash scripts/medical/prepare-bmad-hf-mirror.sh prepare
+```
+
+网络稳定时也可以连续执行：
+
+```bash
+bash scripts/medical/prepare-bmad-hf-mirror.sh all
 ```
 
 默认输出：
@@ -64,7 +94,9 @@ data/bmad/prepared/semantic-manifest.jsonl
 data/bmad/prepared/preparation-summary.json
 ```
 
-下载支持缓存和断点续传，原始压缩包会保留。由于 BMAD 原始 valid/test 病人存在交叉，
+下载支持断点续传，原始压缩包会保留。如果你已在浏览器或其他服务器下载了
+`bmad.zip`，设置 `USER_BMAD_ARCHIVE` 或环境变量 `BMAD_ARCHIVE` 后，只运行 `prepare`
+即可，不会访问网络。由于 BMAD 原始 valid/test 病人存在交叉，
 准备器按数据集和患者异常状态分层，重新进行确定性的 70/10/20 患者级划分；因此该
 manifest 用于本文三个诊断实验，但不能冒充官方 BMAD benchmark split。
 
