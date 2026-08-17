@@ -1,0 +1,12 @@
+manifest: ${LAFITE_DATA_DIR}/brain-manifest.jsonl
+lafite_config: config.yaml
+checkpoint: ${BRAIN_LAFITE_CHECKPOINT}
+split: val
+device: ${LAFITE_CALIBRATION_DEVICE:-cuda:0}
+score_reduction: topk_mean
+topk_fraction: 0.01
+patient_aggregation: mean
+mask_candidate_count: 101
+preprocessing:
+  input_scaling: uint8_passthrough
+summary: ${LAFITE_RUN_ROOT}/brain/calibration.json

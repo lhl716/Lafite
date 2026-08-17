@@ -11,10 +11,8 @@ factory_kwargs:
   knowledge:
     normal: no visible focal tumor in the selected axial slice
     tumor: visible focal tumor-like lesion in the selected axial slice
-  preprocessing:
-    ct_windows:
-      - [40, 400]
-    slice_offsets: [-1, 0, 1]
+preprocessing:
+    input_scaling: uint8_passthrough
 target_fields: [finding, report, label, target, ground_truth]
 evidence_fields: [image, mask, feature_cache, lesion_feature, region, slice_index]
 summary: ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp3/export-summary.json

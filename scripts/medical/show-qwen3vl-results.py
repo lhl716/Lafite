@@ -24,35 +24,52 @@ def main() -> int:
     root = Path(sys.argv[1] if len(sys.argv) > 1 else "outputs/medical-real").expanduser().resolve()
     print("Results root: %s" % root)
 
-    exp1 = _read(root / "exp1" / "probe-summary.json")
-    if exp1:
-        print("\nExperiment 1 — positive-patient Dice / pixel AUPRC")
-        for name, value in exp1.get("feature_sets", {}).items():
-            metrics = value.get("metrics", {}).get("test", {})
+    for modality in ("brain", "liver"):
+        exp1 = _read(root / modality / "exp1" / "probe-summary.json")
+        if exp1:
             print(
-                "  %-28s %s / %s"
-                % (
-                    name,
-                    _number(metrics.get("positive_patient_dice_mean")),
-                    _number(metrics.get("pixel_average_precision")),
+                "\nExperiment 1 (%s) — positive-patient Dice / pixel AUPRC"
+                % modality
+            )
+            for name, value in exp1.get("feature_sets", {}).items():
+                metrics = value.get("metrics", {}).get("test", {})
+                print(
+                    "  %-28s %s / %s"
+                    % (
+                        name,
+                        _number(metrics.get("positive_patient_dice_mean")),
+                        _number(metrics.get("pixel_average_precision")),
+                    )
+                )
+
+        exp2 = _read(root / modality / "exp2" / "evaluation-summary.json")
+        if exp2:
+            red = exp2.get("red_flag_assessment", {})
+            derived = red.get("derived_metrics", {})
+            print(
+                "\nExperiment 2 (%s) — shortcut gate: %s"
+                % (modality, red.get("status", "unknown"))
+            )
+            print(
+                "  lesion score drop:       %s"
+                % _number(derived.get("mean_lesion_score_drop"))
+            )
+            print(
+                "  nuisance/lesion ratio:   %s"
+                % _number(derived.get("nuisance_to_lesion_ratio"))
+            )
+            print(
+                "  normal FPR increase (pp): %s"
+                % _number(
+                    derived.get("normal_nuisance_fpr_increase_percentage_points")
                 )
             )
-
-    exp2 = _read(root / "exp2" / "evaluation-summary.json")
-    if exp2:
-        red = exp2.get("red_flag_assessment", {})
-        derived = red.get("derived_metrics", {})
-        print("\nExperiment 2 — shortcut gate: %s" % red.get("status", "unknown"))
-        print("  lesion score drop:       %s" % _number(derived.get("mean_lesion_score_drop")))
-        print("  nuisance/lesion ratio:   %s" % _number(derived.get("nuisance_to_lesion_ratio")))
-        print(
-            "  normal FPR increase (pp): %s"
-            % _number(derived.get("normal_nuisance_fpr_increase_percentage_points"))
-        )
-        triggered = [
-            item.get("rule") for item in red.get("decisions", []) if item.get("triggered") is True
-        ]
-        print("  triggered red flags:     %s" % (", ".join(triggered) or "none"))
+            triggered = [
+                item.get("rule")
+                for item in red.get("decisions", [])
+                if item.get("triggered") is True
+            ]
+            print("  triggered red flags:     %s" % (", ".join(triggered) or "none"))
 
     exp3 = _read(root / "exp3" / "evaluation-summary.json")
     if exp3:

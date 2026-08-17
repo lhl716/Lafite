@@ -105,6 +105,22 @@ Run the non-medical installation smoke suite with:
 bash scripts/medical/run-smoke-suite.sh
 ```
 
+Prepare modality-specific metadata and retrain medical LafitE checkpoints on a
+single GPU with:
+
+```bash
+python3 -m pip install -r requirements-lafite-medical.txt
+bash scripts/medical/train-bmad-lafite.sh prepare
+bash scripts/medical/train-bmad-lafite.sh brain
+bash scripts/medical/train-bmad-lafite.sh calibrate-brain
+bash scripts/medical/train-bmad-lafite.sh liver
+bash scripts/medical/train-bmad-lafite.sh calibrate-liver
+```
+
+`bash scripts/medical/train-bmad-lafite.sh all` runs the same sequence
+serially. Brain MRI and Liver CT-PNG use separate checkpoints and validation
+thresholds; no industrial anomaly checkpoint is loaded.
+
 See [the medical diagnostic experiment guide](docs/medical-diagnostic-experiments.md)
 for the patient-level manifest schema, model factory interfaces, real-data
 configuration, leakage controls, metrics, and interpretation rules.

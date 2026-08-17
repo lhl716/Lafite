@@ -42,6 +42,15 @@ parser.add_argument('--local_rank', default=-1, help='local rank for dist',type 
 parser.add_argument('--class_name', default=None, help='special if train single cls',type = str)
 
 parser.add_argument('--random_seed', default=None, help='for changing cfg',type=int)
+parser.add_argument('--train-meta', help='override dataset.train.meta_file')
+parser.add_argument('--val-meta', help='override dataset.test.meta_file')
+parser.add_argument('--pretrained-model', help='local EfficientNet backbone weights; empty config value downloads once')
+parser.add_argument('--output-dir', help='experiment root for checkpoints, logs, and validation artifacts')
+parser.add_argument('--epochs', type=int, help='override trainer.max_epoch')
+parser.add_argument('--batch-size', type=int, help='override dataset.batch_size')
+parser.add_argument('--workers', type=int, help='override dataset.workers')
+parser.add_argument('--val-freq', type=int, help='override trainer.val_freq_epoch')
+parser.add_argument('--save-step', type=int, help='override saver.save_step')
 
 
 def main():
@@ -53,6 +62,40 @@ def main():
     with open(args.config) as f:
         config = EasyDict(yaml.load(f, Loader=yaml.FullLoader))
 
+    if args.train_meta:
+        config.dataset.train.meta_file = os.path.abspath(os.path.expanduser(args.train_meta))
+    if args.val_meta:
+        config.dataset.test.meta_file = os.path.abspath(os.path.expanduser(args.val_meta))
+    if args.pretrained_model is not None:
+        config.net[0].kwargs.pretrained_model = os.path.abspath(
+            os.path.expanduser(args.pretrained_model)
+        )
+    if args.epochs is not None:
+        config.trainer.max_epoch = args.epochs
+    if args.batch_size is not None:
+        config.dataset.batch_size = args.batch_size
+    if args.workers is not None:
+        config.dataset.workers = args.workers
+    if args.val_freq is not None:
+        config.trainer.val_freq_epoch = args.val_freq
+    if args.save_step is not None:
+        config.saver.save_step = args.save_step
+    for name, value in (
+        ('epochs', config.trainer.max_epoch),
+        ('batch-size', config.dataset.batch_size),
+        ('val-freq', config.trainer.val_freq_epoch),
+    ):
+        if int(value) <= 0:
+            raise ValueError('{} must be positive'.format(name))
+    if int(config.dataset.workers) < 0:
+        raise ValueError('workers must be non-negative')
+    for meta_name, meta_path in (
+        ('train metadata', config.dataset.train.meta_file),
+        ('validation metadata', config.dataset.test.meta_file),
+    ):
+        if not os.path.isfile(meta_path):
+            raise FileNotFoundError('{} not found: {}'.format(meta_name, meta_path))
+
     config.port = config.get("port", None)
     rank, world_size = setup_distributed(port=config.port)
 
@@ -60,7 +103,11 @@ def main():
 
     config = update_config(config)
 
-    config.exp_path = os.path.dirname(args.config)
+    config.exp_path = (
+        os.path.abspath(os.path.expanduser(args.output_dir))
+        if args.output_dir
+        else os.path.dirname(args.config)
+    )
     if args.class_name is not None:
         config.dataset.train.meta_file = \
             config.dataset.train.meta_file.replace("{class_name}", args.class_name)

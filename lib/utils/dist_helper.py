@@ -42,7 +42,7 @@ def setup_distributed(backend="nccl", port=None):
 
 def get_rank():
     """Replace linklink.get_rank"""
-    rank_cands = ["SLURM_PROCID", "MV2_COMM_WORLD_RANK", "PMI_RANK"]
+    rank_cands = ["RANK", "SLURM_PROCID", "MV2_COMM_WORLD_RANK", "PMI_RANK"]
     for rank_name in rank_cands:
         if rank_name in os.environ:
             return int(os.environ[rank_name])
@@ -51,7 +51,7 @@ def get_rank():
 
 def get_world_size():
     """Replace linklink.get_world_size"""
-    ws_cands = ["SLURM_NTASKS", "MV2_COMM_WORLD_SIZE", "PMI_SIZE"]
+    ws_cands = ["WORLD_SIZE", "SLURM_NTASKS", "MV2_COMM_WORLD_SIZE", "PMI_SIZE"]
     for ws_name in ws_cands:
         if ws_name in os.environ:
             return int(os.environ[ws_name])

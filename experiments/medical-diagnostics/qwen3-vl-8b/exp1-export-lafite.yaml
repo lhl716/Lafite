@@ -1,13 +1,11 @@
-manifest: ${MEDICAL_MANIFEST:-/data/oss_bucket_0/yunlin/dataset/bmad/prepared/medical-manifest.jsonl}
-lafite_config: ../../MVTec-LafitE/config.yaml
-checkpoint: ${LAFITE_CHECKPOINT}
-output_dir: ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp1/cache/lafite
+manifest: ${ACTIVE_MEDICAL_MANIFEST}
+lafite_config: ${ACTIVE_LAFITE_CONFIG}
+checkpoint: ${ACTIVE_LAFITE_CHECKPOINT}
+output_dir: ${ACTIVE_EXPERIMENT_ROOT}/exp1/cache/lafite
 device: ${EXP1_LAFITE_DEVICE:-cuda:0}
 mode: reconstruction
 require_mask: true
 overwrite: false
 preprocessing:
-  ct_windows:
-    - [40, 400]
-  slice_offsets: [-1, 0, 1]
-summary: ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp1/export-lafite-summary.json
+  input_scaling: uint8_passthrough
+summary: ${ACTIVE_EXPERIMENT_ROOT}/exp1/export-lafite-summary.json

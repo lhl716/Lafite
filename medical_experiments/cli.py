@@ -123,6 +123,26 @@ def _prepare_bmad(args: argparse.Namespace) -> int:
     return 0
 
 
+def _prepare_lafite_data(args: argparse.Namespace) -> int:
+    from .lafite_medical import prepare_lafite_data
+
+    result = prepare_lafite_data(
+        Path(args.manifest),
+        Path(args.output_dir),
+        strict_normal_patients=not args.allow_anomalous_patient_normal_slices,
+    )
+    if args.output:
+        write_json(Path(args.output).expanduser().resolve(), result)
+    print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0
+
+
+def _calibrate_lafite(args: argparse.Namespace) -> int:
+    from .lafite_calibration import calibrate_lafite
+
+    return _run_configured(args, calibrate_lafite)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m medical_experiments",
@@ -164,6 +184,20 @@ def build_parser() -> argparse.ArgumentParser:
     bmad.add_argument("--accept-license", action="store_true")
     bmad.set_defaults(handler=_prepare_bmad)
 
+    lafite_data = subparsers.add_parser(
+        "prepare-lafite-data",
+        help="create modality-specific BMAD manifests and LafitE training metadata",
+    )
+    lafite_data.add_argument("--manifest", required=True)
+    lafite_data.add_argument("--output-dir", required=True)
+    lafite_data.add_argument("--output", help="optional preparation summary JSON")
+    lafite_data.add_argument(
+        "--allow-anomalous-patient-normal-slices",
+        action="store_true",
+        help="allow label=0 slices from patients who have another anomalous slice",
+    )
+    lafite_data.set_defaults(handler=_prepare_lafite_data)
+
     for name, help_text, handler in (
         ("export-lafite", "cache LafitE aligned/reconstructed features", _export_lafite),
         ("export-mllm", "cache configured MLLM intermediate representations", _export_mllm),
@@ -174,6 +208,7 @@ def build_parser() -> argparse.ArgumentParser:
         ("export-semantic-scores", "run a real LLM/MLLM under four controlled conditions", _export_semantic_scores),
         ("llm-necessity", "experiment 3: compositional semantic baselines", _llm_necessity),
         ("make-smoke-data", "generate non-medical data for installation QA only", _make_smoke_data),
+        ("calibrate-lafite", "select LafitE thresholds on a validation split", _calibrate_lafite),
     ):
         command = subparsers.add_parser(name, help=help_text)
         command.add_argument("--config", required=True)

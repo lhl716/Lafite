@@ -1,9 +1,9 @@
 sources:
-  - cache_dir: ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp1/cache/qwen3vl
+  - cache_dir: ${ACTIVE_EXPERIMENT_ROOT}/exp1/cache/qwen3vl
     include: [qwen_vision_early, qwen_vision_last, qwen_projector, qwen_llm_18, qwen_llm_36]
-  - cache_dir: ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp1/cache/lafite
+  - cache_dir: ${ACTIVE_EXPERIMENT_ROOT}/exp1/cache/lafite
     include: [feature_align, feature_rec, lafite_residual, mask]
-output_dir: ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp1/cache/merged
+output_dir: ${ACTIVE_EXPERIMENT_ROOT}/exp1/cache/merged
 strict_sample_set: true
 overwrite: false
-summary: ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp1/merge-summary.json
+summary: ${ACTIVE_EXPERIMENT_ROOT}/exp1/merge-summary.json

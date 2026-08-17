@@ -1,0 +1,102 @@
+version: v1.0.0-medical
+random_seed: 133
+reproduce: true
+port: 11111
+
+dataset:
+  type: custom
+  image_reader:
+    type: opencv
+    kwargs:
+      image_dir: /
+      color_mode: RGB
+  train:
+    meta_file: /path/to/liver-train.jsonl
+    rebalance: false
+    hflip: false
+    vflip: false
+    rotate: false
+  test:
+    meta_file: /path/to/liver-val.jsonl
+  input_size: [224, 224]
+  pixel_mean: [0.485, 0.456, 0.406]
+  pixel_std: [0.229, 0.224, 0.225]
+  batch_size: 64
+  workers: 8
+
+criterion:
+  - name: DiffusionLoss
+    type: DiffusionLoss
+    kwargs:
+      weight: 1.0
+
+trainer:
+  max_epoch: 1000
+  clip_max_norm: 0.1
+  val_freq_epoch: 50
+  print_freq_step: 20
+  tb_freq_step: 20
+  lr_scheduler:
+    type: StepLR
+    kwargs:
+      step_size: 800
+      gamma: 0.1
+  optimizer:
+    type: AdamW
+    kwargs:
+      lr: 0.0001
+      betas: [0.9, 0.999]
+      weight_decay: 0.0001
+
+saver:
+  auto_resume: true
+  always_save: false
+  save_step: 50
+  save_dir: checkpoints/
+  log_dir: log/
+
+evaluator:
+  save_dir: result_eval_temp
+  key_metric: mean_pixel_auc
+  metrics:
+    auc:
+      - name: pro
+      - name: mean
+      - name: std
+      - name: max
+        kwargs:
+          avgpool_size: [16, 16]
+      - name: pixel
+
+frozen_layers: [backbone]
+
+net:
+  - name: backbone
+    type: lib.models.backbones.efficientnet_b4
+    frozen: true
+    kwargs:
+      pretrained: true
+      pretrained_model: ""
+      outlayers: [1, 2, 3, 4]
+  - name: neck
+    prev: backbone
+    type: lib.models.necks.MFCN
+    kwargs:
+      outstrides: [7]
+  - name: reconstruction
+    prev: neck
+    type: lib.models.reconstructions.UNetGD
+    kwargs:
+      dim: 256
+      dim_mults: [1, 2, 3, 4]
+      image_size: 32
+      self_condition: false
+      timesteps: 1000
+      use_input_norm: false
+      infer_time: 960
+      infer_use_ema: false
+      sampling_timesteps: 6
+      ddim_sampling_eta: 1
+      save_recon: false
+      initializer:
+        method: xavier_normal

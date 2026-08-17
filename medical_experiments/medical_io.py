@@ -143,6 +143,24 @@ def prepare_model_image(array, modality: str, preprocessing: Mapping[str, Any]):
 
     np = _numpy()
     image = np.asarray(array)
+    input_scaling = str(preprocessing.get("input_scaling", "modality_default")).lower()
+    if input_scaling in {"uint8", "uint8_passthrough", "png_uint8"}:
+        if image.dtype.kind not in {"u", "i"}:
+            finite = image[np.isfinite(image)]
+            if finite.size and (float(finite.min()) < 0.0 or float(finite.max()) > 255.0):
+                raise ValueError("uint8_passthrough expects values in [0, 255]")
+        image = np.clip(image.astype("float32"), 0.0, 255.0) / 255.0
+        if image.ndim == 2:
+            image = image[..., None]
+        if image.shape[-1] == 1:
+            image = np.repeat(image, 3, axis=-1)
+        if image.ndim != 3 or image.shape[-1] < 1:
+            raise ValueError("uint8_passthrough expects a 2D or HWC image")
+        if image.shape[-1] > 3:
+            image = image[..., :3]
+        return image.astype("float32")
+    if input_scaling not in {"modality_default", "medical"}:
+        raise ValueError("input_scaling must be modality_default or uint8_passthrough")
     modality_upper = str(modality).upper()
     from_volume = image.ndim == 3 and preprocessing.get("slice_index") is not None
     if from_volume:

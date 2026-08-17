@@ -1,5 +1,5 @@
 cache_paths:
-  - ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp1/cache/merged
+  - ${ACTIVE_EXPERIMENT_ROOT}/exp1/cache/merged
 stage_keys:
   vision_early: qwen_vision_early
   vision_last: qwen_vision_last
@@ -57,4 +57,4 @@ coordinate_control:
 random_feature_control:
   enabled: true
 coarse_label_key: modality
-summary: ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp1/probe-summary.json
+summary: ${ACTIVE_EXPERIMENT_ROOT}/exp1/probe-summary.json

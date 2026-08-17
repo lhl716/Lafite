@@ -1,0 +1,18 @@
+# LafitE diffusion training on the prepared BMAD PNG subsets.
+# FAISS is intentionally omitted: the first medical experiments use the
+# reconstruction model and do not require the optional feature-editing bank.
+easydict>=1.10
+opencv-python-headless>=4.8
+tabulate>=0.9
+einops>=0.7
+matplotlib>=3.7
+numpy>=1.23
+torch>=2.1
+torchvision>=0.16
+scipy>=1.9
+tqdm>=4.66
+PyYAML>=6.0
+scikit-learn>=1.2
+scikit-image>=0.20
+tensorboardX>=2.6
+Pillow>=9.5

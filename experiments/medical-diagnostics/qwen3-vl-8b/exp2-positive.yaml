@@ -1,5 +1,5 @@
-manifest: ${MEDICAL_MANIFEST:-/data/oss_bucket_0/yunlin/dataset/bmad/prepared/medical-manifest.jsonl}
-output_dir: ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp2/positive
+manifest: ${ACTIVE_MEDICAL_MANIFEST}
+output_dir: ${ACTIVE_EXPERIMENT_ROOT}/exp2/positive
 split: test
 cohort: positive
 seed: 42
@@ -17,13 +17,12 @@ interventions:
   placebo_max_outside: 0.05
 model_factory: medical_experiments.factories.lafite:make_lafite_predictor
 factory_kwargs:
-  lafite_config: ../../MVTec-LafitE/config.yaml
-  checkpoint: ${LAFITE_CHECKPOINT}
+  lafite_config: ${ACTIVE_LAFITE_CONFIG}
+  checkpoint: ${ACTIVE_LAFITE_CHECKPOINT}
   device: ${EXP2_LAFITE_DEVICE:-cuda:2}
   score_reduction: topk_mean
   topk_fraction: 0.01
-  mask_threshold: ${LAFITE_MASK_THRESHOLD}
+  mask_threshold: ${ACTIVE_LAFITE_MASK_THRESHOLD}
   preprocessing:
-    ct_windows:
-      - [40, 400]
-summary: ${MEDICAL_OUTPUT_ROOT:-../../../outputs/medical-real}/exp2/positive-summary.json
+    input_scaling: uint8_passthrough
+summary: ${ACTIVE_EXPERIMENT_ROOT}/exp2/positive-summary.json
