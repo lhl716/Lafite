@@ -71,6 +71,7 @@ def validate_manifest(
     check_paths: bool = False,
     require_mask: bool = False,
     require_semantics: bool = False,
+    progress: bool = False,
 ) -> Dict[str, Any]:
     """Validate schema and fail on patient leakage across data splits."""
 
@@ -81,7 +82,32 @@ def validate_manifest(
     split_counts: Counter = Counter()
     modality_counts: Counter = Counter()
 
-    for index, record in enumerate(records):
+    indexed_records: Any = enumerate(records)
+    if progress:
+        try:
+            from tqdm.auto import tqdm
+        except ImportError:  # pragma: no cover - minimal environments
+            def plain_progress():
+                total = len(records)
+                for index, record in enumerate(records):
+                    if index == 0 or (index + 1) % 1000 == 0 or index + 1 == total:
+                        print(
+                            "Validating manifest paths: {}/{}".format(index + 1, total),
+                            flush=True,
+                        )
+                    yield index, record
+
+            indexed_records = plain_progress()
+        else:
+            indexed_records = tqdm(
+                indexed_records,
+                total=len(records),
+                desc="Validating manifest paths",
+                unit="record",
+                dynamic_ncols=True,
+            )
+
+    for index, record in indexed_records:
         prefix = "record[%d]" % index
         missing = [field for field in REQUIRED_FIELDS if record.get(field) in (None, "")]
         if missing:

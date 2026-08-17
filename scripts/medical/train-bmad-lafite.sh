@@ -38,15 +38,19 @@ export LAFITE_CALIBRATION_DEVICE="${LAFITE_CALIBRATION_DEVICE:-cuda:0}"
 cd "${REPO_DIR}"
 
 prepare_data() {
+  echo "[prepare] Creating Brain/Liver LafitE metadata from ${MEDICAL_MANIFEST}"
   "${LAFITE_PYTHON}" -m medical_experiments prepare-lafite-data \
     --manifest "${MEDICAL_MANIFEST}" \
     --output-dir "${LAFITE_DATA_DIR}" \
     --output "${LAFITE_DATA_DIR}/preparation-summary.json"
+  echo "[prepare] Metadata ready in ${LAFITE_DATA_DIR}"
 }
 
 ensure_data() {
   if [[ ! -f "${LAFITE_DATA_DIR}/brain-train.jsonl" || ! -f "${LAFITE_DATA_DIR}/liver-train.jsonl" ]]; then
     prepare_data
+  else
+    echo "[prepare] Reusing existing LafitE metadata in ${LAFITE_DATA_DIR}"
   fi
 }
 
@@ -56,6 +60,14 @@ train_one() {
   title="$(tr '[:lower:]' '[:upper:]' <<< "${name:0:1}")${name:1}"
   local config="${REPO_DIR}/experiments/BMAD-${title}-LafitE/config.yaml"
   local run_dir="${LAFITE_RUN_ROOT}/${name}"
+  echo "[train] modality=${name} gpu=${GPU} epochs=${MAX_EPOCHS} batch=${BATCH_SIZE} workers=${WORKERS}"
+  echo "[train] train metadata: ${LAFITE_DATA_DIR}/${name}-train.jsonl"
+  echo "[train] validation metadata: ${LAFITE_DATA_DIR}/${name}-val.jsonl"
+  if [[ -z "${EFFICIENTNET_B4_WEIGHTS}" ]]; then
+    echo "[train] EfficientNet-B4 weights: automatic torch cache lookup/download"
+  else
+    echo "[train] EfficientNet-B4 weights: ${EFFICIENTNET_B4_WEIGHTS}"
+  fi
   local command=(
     "${LAFITE_PYTHON}" main/train_val_diff.py
     -c "${config}"
@@ -115,7 +127,7 @@ case "${MODE}" in
   calibrate-liver) ensure_data; calibrate_one liver ;;
   calibrate) ensure_data; calibrate_one brain; calibrate_one liver ;;
   all)
-    prepare_data
+    ensure_data
     train_one brain
     calibrate_one brain
     train_one liver

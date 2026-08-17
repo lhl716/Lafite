@@ -15,6 +15,7 @@ import torch.distributed as dist
 import torch.optim
 from torch.nn.parallel import DistributedDataParallel as DDP
 from tensorboardX import SummaryWriter
+from tqdm.auto import tqdm
 
 from lib.datasets.data_builder import build_dataloader
 from lib.models.model_helper import ModelHelper
@@ -96,6 +97,12 @@ def main():
         if not os.path.isfile(meta_path):
             raise FileNotFoundError('{} not found: {}'.format(meta_name, meta_path))
 
+    print(
+        "[startup 1/5] Initializing CUDA/distributed runtime on GPU(s): {}".format(
+            args.gpu
+        ),
+        flush=True,
+    )
     config.port = config.get("port", None)
     rank, world_size = setup_distributed(port=config.port)
 
@@ -138,6 +145,12 @@ def main():
     if random_seed:
         set_random_seed(random_seed, reproduce)
 
+    if rank == 0:
+        backbone_weights = config.net[0].kwargs.get("pretrained_model", "")
+        logger.info(
+            "[startup 2/5] Building LafitE model; EfficientNet-B4 weights: %s",
+            backbone_weights or "automatic download/cache lookup",
+        )
     model = ModelHelper(config.net)
     model.cuda()
     local_rank = int(os.environ["LOCAL_RANK"])
@@ -147,6 +160,8 @@ def main():
         output_device=local_rank,
         find_unused_parameters=True,
     )
+    if rank == 0:
+        logger.info("[startup 3/5] LafitE model is on CUDA and DDP is ready")
 
     layers = []
     for module in config.net:
@@ -184,7 +199,25 @@ def main():
             load_path = os.path.join(config.exp_path, load_path)
         load_state(load_path, model)
 
+    if rank == 0:
+        logger.info(
+            "[startup 4/5] Building dataloaders: train=%s val=%s workers=%d batch=%d",
+            config.dataset.train.meta_file,
+            config.dataset.test.meta_file,
+            int(config.dataset.workers),
+            int(config.dataset.batch_size),
+        )
     train_loader, val_loader = build_dataloader(config.dataset, distributed=True)
+    if rank == 0:
+        logger.info(
+            "[startup 5/5] Dataloaders ready: train_samples=%d train_batches=%d "
+            "val_samples=%d val_batches=%d; starting at epoch %d",
+            len(train_loader.dataset),
+            len(train_loader),
+            len(val_loader.dataset),
+            len(val_loader),
+            last_epoch + 1,
+        )
 
     if args.evaluate:
         validate(val_loader, model)
@@ -275,7 +308,16 @@ def train_one_epoch(
     logger = logging.getLogger("global_logger")
     end = time.time()
 
-    for i, input in enumerate(train_loader):
+    progress = tqdm(
+        train_loader,
+        total=len(train_loader),
+        desc="Train {}/{}".format(epoch + 1, config.trainer.max_epoch),
+        unit="batch",
+        dynamic_ncols=True,
+        mininterval=1.0,
+        disable=rank != 0,
+    )
+    for i, input in enumerate(progress):
         curr_step = start_iter + i
         current_lr = lr_scheduler.get_lr()[0]
 
@@ -301,6 +343,13 @@ def train_one_epoch(
         model.module.ema_update()
 
         batch_time.update(time.time() - end)
+
+        if rank == 0 and (i == 0 or (i + 1) % 5 == 0):
+            progress.set_postfix(
+                loss="{:.5f}".format(losses.avg),
+                data_s="{:.2f}".format(data_time.val),
+                step=curr_step + 1,
+            )
 
         if (curr_step + 1) % config.trainer.print_freq_step == 0 and rank == 0:
             tb_logger.add_scalar("loss_train", losses.avg, curr_step + 1)
@@ -343,7 +392,16 @@ def validate(val_loader, model):
     dist.barrier()
 
     with torch.no_grad():
-        for i, input in enumerate(val_loader):
+        progress = tqdm(
+            val_loader,
+            total=len(val_loader),
+            desc="Validate",
+            unit="batch",
+            dynamic_ncols=True,
+            mininterval=1.0,
+            disable=rank != 0,
+        )
+        for i, input in enumerate(progress):
             outputs = model(input)
             dump(config.evaluator.eval_dir, outputs)
 
@@ -356,6 +414,12 @@ def validate(val_loader, model):
 
             batch_time.update(time.time() - end)
             end = time.time()
+
+            if rank == 0 and (i == 0 or (i + 1) % 5 == 0):
+                progress.set_postfix(
+                    loss="{:.5f}".format(losses.avg),
+                    batch_s="{:.2f}".format(batch_time.val),
+                )
 
             if (i + 1) % config.trainer.print_freq_step == 0 and rank == 0:
                 logger.info(

@@ -72,6 +72,7 @@ def prepare_lafite_data(
         manifest_path=manifest_path,
         check_paths=True,
         require_mask=True,
+        progress=True,
     )
     if not validation["valid"]:
         raise ValueError("medical manifest is invalid: %s" % validation["errors"])
