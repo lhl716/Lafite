@@ -229,6 +229,11 @@ checkpoint 和阈值留空时，脚本自动读取上一节训练与校准产生
 
 手工填写阈值只用于复现实验；新训练默认读取两份 `calibration.json`，避免在 test 集反推。
 
+训练 checkpoint、TensorBoard 日志和校准结果可以保存在 OSS，但 LafitE validation 会用
+`np.savez` 生成需要随机 seek 的临时 ZIP。训练脚本因此默认把这些临时文件写到本机
+`/tmp/lafite-eval`，验证结束后自动删除。不要把 `USER_LAFITE_LOCAL_SCRATCH` 改成 OSS
+路径；本机 `/tmp` 空间不足时，应改成计算节点的本地 NVMe/scratch 目录。
+
 ## 6. 运行三个实验
 
 建议先逐项运行，便于发现数据问题：

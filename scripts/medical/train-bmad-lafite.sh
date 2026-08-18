@@ -15,6 +15,7 @@ USER_MAX_EPOCHS="1000"
 USER_VAL_FREQ="50"
 USER_SAVE_STEP="50"
 USER_LAFITE_PYTHON="python3"
+USER_LAFITE_LOCAL_SCRATCH="/tmp/lafite-eval"
 # -----------------------------------------------------------------------------
 
 MODE="${1:-all}"
@@ -32,6 +33,7 @@ MAX_EPOCHS="${MAX_EPOCHS:-${USER_MAX_EPOCHS}}"
 VAL_FREQ="${VAL_FREQ:-${USER_VAL_FREQ}}"
 SAVE_STEP="${SAVE_STEP:-${USER_SAVE_STEP}}"
 LAFITE_PYTHON="${LAFITE_PYTHON:-${USER_LAFITE_PYTHON}}"
+LAFITE_LOCAL_SCRATCH="${LAFITE_LOCAL_SCRATCH:-${USER_LAFITE_LOCAL_SCRATCH}}"
 MEDICAL_MANIFEST="${MEDICAL_MANIFEST:-${BMAD_DATA_ROOT}/prepared/medical-manifest.jsonl}"
 export LAFITE_CALIBRATION_DEVICE="${LAFITE_CALIBRATION_DEVICE:-cuda:0}"
 
@@ -63,6 +65,7 @@ train_one() {
   echo "[train] modality=${name} gpu=${GPU} epochs=${MAX_EPOCHS} batch=${BATCH_SIZE} workers=${WORKERS}"
   echo "[train] train metadata: ${LAFITE_DATA_DIR}/${name}-train.jsonl"
   echo "[train] validation metadata: ${LAFITE_DATA_DIR}/${name}-val.jsonl"
+  echo "[train] validation scratch (local): ${LAFITE_LOCAL_SCRATCH}"
   if [[ -z "${EFFICIENTNET_B4_WEIGHTS}" ]]; then
     echo "[train] EfficientNet-B4 weights: automatic torch cache lookup/download"
   else
@@ -80,6 +83,7 @@ train_one() {
     --workers "${WORKERS}"
     --val-freq "${VAL_FREQ}"
     --save-step "${SAVE_STEP}"
+    --eval-temp-dir "${LAFITE_LOCAL_SCRATCH}"
   )
   if [[ -n "${EFFICIENTNET_B4_WEIGHTS}" ]]; then
     if [[ ! -f "${EFFICIENTNET_B4_WEIGHTS}" ]]; then

@@ -3,6 +3,7 @@ import logging
 import os
 import pprint
 import shutil
+import tempfile
 import time
 import yaml
 from easydict import EasyDict
@@ -52,6 +53,27 @@ parser.add_argument('--batch-size', type=int, help='override dataset.batch_size'
 parser.add_argument('--workers', type=int, help='override dataset.workers')
 parser.add_argument('--val-freq', type=int, help='override trainer.val_freq_epoch')
 parser.add_argument('--save-step', type=int, help='override saver.save_step')
+parser.add_argument(
+    '--eval-temp-dir',
+    help='local seekable directory for validation NPZ files (defaults to system /tmp)',
+)
+
+
+def _validation_temp_dir(root, experiment_path, current_time, suffix):
+    root = os.path.abspath(os.path.expanduser(root))
+    experiment_name = os.path.basename(os.path.normpath(experiment_path)) or 'default'
+    suffix = str(suffix).strip('/\\') or 'validation'
+    directory = os.path.join(root, experiment_name, current_time + '_' + suffix)
+    os.makedirs(directory, exist_ok=True)
+    # np.savez/zipfile requires seek support.  Some object-storage FUSE mounts
+    # accept ordinary writes but fail on close when zipfile seeks backwards.
+    with tempfile.NamedTemporaryFile(dir=directory, prefix='.seek-test-', delete=True) as probe:
+        probe.write(b'lafite')
+        probe.flush()
+        probe.seek(0)
+        if probe.read() != b'lafite':
+            raise OSError('validation scratch seek test returned unexpected data')
+    return directory
 
 
 def main():
@@ -123,7 +145,23 @@ def main():
         config.exp_path = os.path.join(config.exp_path, args.class_name)
     config.save_path = os.path.join(config.exp_path, config.saver.save_dir)
     config.log_path = os.path.join(config.exp_path, config.saver.log_dir)
-    config.evaluator.eval_dir = os.path.join(config.exp_path, current_time + config.evaluator.save_dir)
+    eval_temp_root = (
+        args.eval_temp_dir
+        or os.environ.get('LAFITE_EVAL_TEMP_DIR')
+        or os.path.join(tempfile.gettempdir(), 'lafite-eval')
+    )
+    try:
+        config.evaluator.eval_dir = _validation_temp_dir(
+            eval_temp_root,
+            config.exp_path,
+            current_time,
+            config.evaluator.save_dir,
+        )
+    except OSError as error:
+        raise RuntimeError(
+            'validation temp directory must be a local seekable filesystem; '
+            'set --eval-temp-dir to local /tmp or node scratch: {}'.format(error)
+        ) from error
 
     save_every_epoch = config.saver.save_step
     if rank == 0:
@@ -136,6 +174,10 @@ def main():
         )
         logger.info("args: {}".format(pprint.pformat(args)))
         logger.info("config: {}".format(pprint.pformat(config)))
+        logger.info(
+            "Validation NPZ scratch is local and seekable: %s",
+            config.evaluator.eval_dir,
+        )
     else:
         tb_logger = None
 
@@ -466,4 +508,8 @@ def validate(val_loader, model):
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        if dist.is_available() and dist.is_initialized():
+            dist.destroy_process_group()
