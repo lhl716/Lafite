@@ -71,24 +71,31 @@ class AverageMeter(object):
             self.avg = self.sum / self.count
 
 
+def _atomic_copy(src, dst):
+    tmp = dst + ".tmp"
+    shutil.copyfile(src, tmp)
+    os.replace(tmp, dst)
+
+
 def save_checkpoint(state, is_best, config):
     folder = config.save_path
 
-    torch.save(state, os.path.join(folder, "ckpt.pth.tar"))
+    ckpt_path = os.path.join(folder, "ckpt.pth.tar")
+    tmp_path = ckpt_path + ".tmp"
+    # Save to a temp file and rename into place so a killed/interrupted job
+    # (OOM, preemption, full disk on network-mounted storage) never leaves a
+    # truncated ckpt.pth.tar that then gets propagated to ckpt_best.pth.tar.
+    torch.save(state, tmp_path)
+    os.replace(tmp_path, ckpt_path)
+
     if is_best:
-        shutil.copyfile(
-            os.path.join(folder, "ckpt.pth.tar"),
-            os.path.join(folder, "ckpt_best.pth.tar"),
-        )
+        _atomic_copy(ckpt_path, os.path.join(folder, "ckpt_best.pth.tar"))
 
     if config.saver.get(
         "always_save", True
     ):  # default: save checkpoint after validate()
         epoch = state["epoch"]
-        shutil.copyfile(
-            os.path.join(folder, "ckpt.pth.tar"),
-            os.path.join(folder, f"ckpt_{epoch}.pth.tar"),
-        )
+        _atomic_copy(ckpt_path, os.path.join(folder, f"ckpt_{epoch}.pth.tar"))
 
 
 def load_state(path, model, optimizer=None):

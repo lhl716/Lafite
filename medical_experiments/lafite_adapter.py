@@ -26,6 +26,26 @@ def _load_yaml(path: Path):
         return EasyDict(yaml.safe_load(handle))
 
 
+def _load_checkpoint_with_retry(torch_module, checkpoint_path: Path, attempts: int = 5, delay_seconds: float = 3.0):
+    # A checkpoint just written by a chained training step can briefly read as
+    # empty/truncated on network-mounted storage (e.g. OSS FUSE) before the
+    # write is fully propagated; retry before treating it as corrupt.
+    import time
+
+    last_error: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return torch_module.load(str(checkpoint_path), map_location="cpu")
+        except (EOFError, RuntimeError) as exc:
+            last_error = exc
+            if attempt < attempts:
+                time.sleep(delay_seconds)
+    raise RuntimeError(
+        f"failed to load checkpoint at {checkpoint_path} after {attempts} attempts "
+        "(file may still be propagating on network-mounted storage, or is genuinely corrupt)"
+    ) from last_error
+
+
 def load_lafite(config_path: Path, checkpoint_path: Path, device: str = "cpu") -> Tuple[Any, Dict[str, Any]]:
     """Build LafitE and load either DDP or plain checkpoints without dist init."""
 
@@ -43,7 +63,7 @@ def load_lafite(config_path: Path, checkpoint_path: Path, device: str = "cpu") -
     if cfg.net and hasattr(cfg.net[0], "kwargs"):
         cfg.net[0].kwargs["pretrained"] = False
     model = ModelHelper(cfg.net)
-    checkpoint = torch.load(str(checkpoint_path), map_location="cpu")
+    checkpoint = _load_checkpoint_with_retry(torch, checkpoint_path)
     state = checkpoint.get("state_dict", checkpoint)
     cleaned = {}
     for key, value in state.items():
