@@ -44,7 +44,25 @@ def parse_args():
     parser.add_argument("--lafite-data-dir", default=None, help="default: <bmad-data-root>/prepared/lafite")
     parser.add_argument("--medical-manifest", default=None, help="default: <bmad-data-root>/prepared/medical-manifest.jsonl")
     parser.add_argument("--efficientnet-b4-weights", default="")
-    parser.add_argument("--gpus", default="0", help="comma-separated GPU ids for the train step, e.g. 0,1,2,3")
+    parser.add_argument("--gpus", default="0", help="comma-separated GPU ids visible to each process, e.g. 0 or 0,1,2,3")
+    parser.add_argument(
+        "--launcher",
+        choices=("auto", "plain", "torchrun"),
+        default="auto",
+        help="auto: use the platform's RANK/WORLD_SIZE when it supplies them (multi-worker), "
+        "else torchrun for multi-GPU on one node, else a plain single process. "
+        "plain: never wrap in torchrun (correct for multi-worker jobs). "
+        "torchrun: force single-node torchrun with one process per --gpus entry.",
+    )
+    parser.add_argument(
+        "--expect-world-size",
+        type=int,
+        default=None,
+        help="abort unless the resolved world size equals this. Set it to the number of "
+        "workers you submitted: without it, a platform that does not inject RANK/WORLD_SIZE "
+        "silently runs every worker as its own rank-0 trainer, and they overwrite each "
+        "other's checkpoints in the shared run directory.",
+    )
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--max-epochs", type=int, default=1000)
@@ -62,6 +80,76 @@ def _torchrun_launcher():
     # torchrun is a console-script shim around this module; fall back to it
     # directly in case the shim isn't on PATH but torch itself is importable.
     return [sys.executable, "-m", "torch.distributed.run"]
+
+
+RANK_VARS = ("RANK", "SLURM_PROCID", "MV2_COMM_WORLD_RANK", "PMI_RANK")
+WORLD_VARS = ("WORLD_SIZE", "SLURM_NTASKS", "MV2_COMM_WORLD_SIZE", "PMI_SIZE")
+
+
+def _first_env(env, names):
+    for name in names:
+        if name in env:
+            return name, env[name]
+    return None, None
+
+
+def resolve_dist_env(env):
+    """Mirror lib/utils/dist_helper.get_rank/get_world_size without importing torch."""
+    rank_var, rank = _first_env(env, RANK_VARS)
+    world_var, world = _first_env(env, WORLD_VARS)
+    return {
+        "rank_var": rank_var,
+        "rank": int(rank) if rank is not None else None,
+        "world_var": world_var,
+        "world_size": int(world) if world is not None else None,
+        "master_addr": env.get("MASTER_ADDR"),
+        "master_port": env.get("MASTER_PORT"),
+    }
+
+
+def preflight(args, env):
+    """Print, and sanity-check, the distributed setup before burning GPU hours."""
+    info = resolve_dist_env(env)
+    print("[dist] --- distributed pre-flight ---")
+    print(f"[dist] rank        : {info['rank']} (from {info['rank_var'] or 'NOT SET -> dist_helper falls back to 0'})")
+    print(f"[dist] world_size  : {info['world_size']} (from {info['world_var'] or 'NOT SET -> dist_helper falls back to len(CUDA_VISIBLE_DEVICES)'})")
+    print(f"[dist] master_addr : {info['master_addr'] or 'NOT SET -> dist_helper falls back to localhost'}")
+    print(f"[dist] master_port : {info['master_port'] or 'NOT SET -> taken from config.port'}")
+
+    effective_world = info["world_size"] if info["world_size"] is not None else len(
+        [g for g in args.gpus.split(",") if g != ""]
+    )
+    if args.expect_world_size is not None and effective_world != args.expect_world_size:
+        print(
+            f"\nerror: expected world size {args.expect_world_size} but resolved {effective_world}.\n"
+            "       Every worker would train independently as rank 0 and they would all write to the\n"
+            "       same checkpoint path, corrupting it. Make the platform inject RANK/WORLD_SIZE/\n"
+            "       MASTER_ADDR into each worker, or submit this as a single-worker job.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    if effective_world > 1 and not info["master_addr"] and args.launcher == "plain":
+        print(
+            "\nerror: world size > 1 but MASTER_ADDR is not set; ranks would each rendezvous with\n"
+            "       localhost and never form one group.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    print("[dist] ------------------------------")
+    return info
+
+
+def choose_launcher(args, info):
+    if args.launcher != "auto":
+        return args.launcher
+    # The platform already assigned this process a rank in a multi-worker job;
+    # wrapping it in torchrun would overwrite RANK/WORLD_SIZE and split the job
+    # into independent single-process trainers.
+    if info["world_size"] is not None and info["world_size"] > 1:
+        return "plain"
+    if len([g for g in args.gpus.split(",") if g != ""]) > 1:
+        return "torchrun"
+    return "plain"
 
 
 def run(cmd, env):
@@ -99,14 +187,20 @@ def train_one(args, env, name, lafite_data_dir, lafite_run_root):
     gpu_ids = [g for g in args.gpus.split(",") if g != ""]
     nproc = len(gpu_ids)
 
-    print(f"[train] modality={name} gpus={args.gpus} nproc_per_node={nproc} epochs={args.max_epochs} batch={args.batch_size} workers={args.workers}")
+    info = preflight(args, env)
+    launcher = choose_launcher(args, info)
+
+    print(f"[train] modality={name} gpus={args.gpus} launcher={launcher} epochs={args.max_epochs} batch={args.batch_size} workers={args.workers}")
     print(f"[train] train metadata: {lafite_data_dir}/{name}-train.jsonl")
     print(f"[train] validation metadata: {lafite_data_dir}/{name}-val.jsonl")
     print(f"[train] validation scratch (local): {args.local_scratch}")
 
-    cmd = _torchrun_launcher() + [
-        "--standalone",
-        f"--nproc_per_node={nproc}",
+    if launcher == "torchrun":
+        prefix = _torchrun_launcher() + ["--standalone", f"--nproc_per_node={nproc}"]
+    else:
+        prefix = [args.python]
+
+    cmd = prefix + [
         "main/train_val_diff.py",
         "-c", config,
         "-g", args.gpus,

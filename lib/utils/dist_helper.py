@@ -18,10 +18,14 @@ def setup_distributed(backend="nccl", port=None):
     if "SLURM_JOB_ID" in os.environ:
         node_list = os.environ["SLURM_NODELIST"]
         addr = subprocess.getoutput(f"scontrol show hostname {node_list} | head -n1")
-    # specify master port
-    if port is not None:
+    # specify master port.  A port injected by the launcher (torchrun) or by the
+    # job platform describes the rendezvous that actually exists, so it wins over
+    # the config value; forcing config.port here would break multi-worker jobs.
+    if "MASTER_PORT" in os.environ:
+        pass
+    elif port is not None:
         os.environ["MASTER_PORT"] = str(port)
-    elif "MASTER_PORT" not in os.environ:
+    else:
         os.environ["MASTER_PORT"] = "29500"
     if "MASTER_ADDR" not in os.environ:
         os.environ["MASTER_ADDR"] = addr
