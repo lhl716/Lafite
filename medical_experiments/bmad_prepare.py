@@ -280,16 +280,16 @@ def _write_binary_image(path: Path, array: Any) -> None:
     Image.fromarray((np.asarray(array).astype(bool) * 255).astype("uint8"), mode="L").save(path)
 
 
-def _colour_planes(array: Any, mode: str) -> Any:
-    """Drop a trailing alpha plane.
+def _drop_alpha(array: Any) -> Any:
+    """Drop a trailing alpha plane, identified by channel count (LA=2, RGBA=4).
 
     An RGBA/LA PNG stores an opaque alpha channel, so reducing over the last
-    axis (max/any) marks every pixel as non-zero and silently turns a mask into
-    a full-frame blob or a brain outline into the whole slice.
+    axis (max/any) marks every pixel as non-zero -- silently turning a lesion
+    mask into a full-frame blob, or a brain outline into the whole slice.
     """
     np, _, _unused = _deps()
     array = np.asarray(array)
-    if array.ndim == 3 and mode in ("RGBA", "LA", "PA") and array.shape[-1] > 1:
+    if array.ndim == 3 and array.shape[-1] in (2, 4):
         return array[..., :-1]
     return array
 
@@ -297,14 +297,13 @@ def _colour_planes(array: Any, mode: str) -> Any:
 def _decode_lesion_mask(path: Path) -> Any:
     """Read a label PNG as a boolean lesion mask, whatever its channel layout."""
     np, Image, _unused = _deps()
-    raw = Image.open(path)
-    array = np.asarray(raw)
+    array = np.asarray(Image.open(path))
     if array.ndim != 3:
         return array > 0
-    colour = _colour_planes(array, raw.mode)
+    colour = _drop_alpha(array)
     lesion = colour.any(axis=-1) if colour.ndim == 3 else colour > 0
-    if not lesion.any() and raw.mode in ("RGBA", "LA", "PA"):
-        # Colour planes are empty: the mask lives in alpha instead.
+    if not lesion.any() and array.shape[-1] in (2, 4):
+        # Colour planes are empty: the mask lives in the alpha plane instead.
         alpha = array[..., -1]
         if alpha.any() and not alpha.all():
             lesion = alpha > 0
@@ -313,7 +312,9 @@ def _decode_lesion_mask(path: Path) -> Any:
 
 def _derived_masks(image: Any, lesion: Any) -> Tuple[Any, Any]:
     np, _, ndimage = _deps()
-    image = np.asarray(image)
+    # Same alpha trap as the lesion masks: an opaque alpha plane would make the
+    # whole slice "foreground", emptying both derived masks.
+    image = _drop_alpha(image)
     gray = image.max(axis=-1) if image.ndim == 3 else image
     foreground = np.isfinite(gray) & (gray > 0)
     if foreground.any():

@@ -276,7 +276,18 @@ def main():
 
     criterion = build_criterion(config.criterion)
 
-    for epoch in range(last_epoch, config.trainer.max_epoch):
+    # One bar for the whole run.  An epoch takes seconds, so a per-epoch bar plus
+    # per-step log lines buries the console in thousands of lines nobody reads.
+    epoch_bar = tqdm(
+        range(last_epoch, config.trainer.max_epoch),
+        initial=last_epoch,
+        total=config.trainer.max_epoch,
+        desc="Training",
+        unit="epoch",
+        dynamic_ncols=True,
+        disable=rank != 0,
+    )
+    for epoch in epoch_bar:
         train_loader.sampler.set_epoch(epoch)
         val_loader.sampler.set_epoch(epoch)
         last_iter = epoch * len(train_loader)
@@ -290,6 +301,7 @@ def main():
             tb_logger,
             criterion,
             frozen_layers,
+            epoch_bar,
         )
         lr_scheduler.step(epoch)
 
@@ -340,6 +352,7 @@ def train_one_epoch(
     tb_logger,
     criterion,
     frozen_layers,
+    epoch_bar=None,
 ):
 
     batch_time = AverageMeter(config.trainer.print_freq_step)
@@ -359,16 +372,7 @@ def train_one_epoch(
     logger = logging.getLogger("global_logger")
     end = time.time()
 
-    progress = tqdm(
-        train_loader,
-        total=len(train_loader),
-        desc="Train {}/{}".format(epoch + 1, config.trainer.max_epoch),
-        unit="batch",
-        dynamic_ncols=True,
-        mininterval=1.0,
-        disable=rank != 0,
-    )
-    for i, input in enumerate(progress):
+    for i, input in enumerate(train_loader):
         curr_step = start_iter + i
         current_lr = lr_scheduler.get_lr()[0]
 
@@ -395,11 +399,11 @@ def train_one_epoch(
 
         batch_time.update(time.time() - end)
 
-        if rank == 0 and (i == 0 or (i + 1) % 5 == 0):
-            progress.set_postfix(
+        if epoch_bar is not None and (i == 0 or (i + 1) % 5 == 0):
+            epoch_bar.set_postfix(
                 loss="{:.5f}".format(losses.avg),
+                lr="{:.2e}".format(current_lr),
                 data_s="{:.2f}".format(data_time.val),
-                step=curr_step + 1,
             )
 
         if (curr_step + 1) % config.trainer.print_freq_step == 0 and rank == 0:
@@ -408,25 +412,30 @@ def train_one_epoch(
                 tb_logger.add_scalar("lr", current_lr, curr_step + 1)
                 tb_logger.flush()
 
-            logger.info(
-                "Epoch: [{0}/{1}]\t"
-                "Iter: [{2}/{3}]\t"
-                "Time {batch_time.val:.2f} ({batch_time.avg:.2f})\t"
-                "Data {data_time.val:.2f} ({data_time.avg:.2f})\t"
-                "Loss {loss.val:.5f} ({loss.avg:.5f})\t"
-                "LR {lr:.5f}\t".format(
-                    epoch + 1,
-                    config.trainer.max_epoch,
-                    curr_step + 1,
-                    len(train_loader) * config.trainer.max_epoch,
-                    batch_time=batch_time,
-                    data_time=data_time,
-                    loss=losses,
-                    lr=current_lr,
-                )
-            )
-
         end = time.time()
+
+    # One summary line per epoch instead of several per epoch, and only every
+    # print_freq_epoch epochs so a 1000-epoch run stays readable.
+    print_freq_epoch = int(config.trainer.get("print_freq_epoch", 50))
+    if rank == 0 and (
+        epoch == 0
+        or (epoch + 1) % print_freq_epoch == 0
+        or (epoch + 1) == config.trainer.max_epoch
+    ):
+        logger.info(
+            "Epoch: [{0}/{1}]\t"
+            "Time {batch_time.avg:.2f}\t"
+            "Data {data_time.avg:.2f}\t"
+            "Loss {loss.avg:.5f}\t"
+            "LR {lr:.5f}".format(
+                epoch + 1,
+                config.trainer.max_epoch,
+                batch_time=batch_time,
+                data_time=data_time,
+                loss=losses,
+                lr=lr_scheduler.get_lr()[0],
+            )
+        )
 
 
 def validate(val_loader, model):
@@ -451,6 +460,7 @@ def validate(val_loader, model):
             unit="batch",
             dynamic_ncols=True,
             mininterval=1.0,
+            leave=False,
             disable=rank != 0,
         )
         for i, input in enumerate(progress):
@@ -473,12 +483,8 @@ def validate(val_loader, model):
                     batch_s="{:.2f}".format(batch_time.val),
                 )
 
-            if (i + 1) % config.trainer.print_freq_step == 0 and rank == 0:
-                logger.info(
-                    "Test: [{0}/{1}]\tTime {batch_time.val:.3f} ({batch_time.avg:.3f})".format(
-                        i + 1, len(val_loader), batch_time=batch_time
-                    )
-                )
+            # Per-batch validation lines are redundant with the bar; the epoch's
+            # metric table is logged by the caller once the pass finishes.
 
     dist.barrier()
     total_num = torch.Tensor([losses.count]).cuda()

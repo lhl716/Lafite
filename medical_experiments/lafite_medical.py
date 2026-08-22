@@ -111,11 +111,15 @@ def prepare_lafite_data(
             patient_status[patient] = max(patient_status[patient], int(record.get("label", 0)))
 
         diagnostic_path = output_dir / (name + "-manifest.jsonl")
+        print("Writing %s (%d records)" % (diagnostic_path.name, len(selected)), flush=True)
         write_jsonl(diagnostic_path, selected)
+        # Every path here was already stat-ed by the whole-manifest validation
+        # above, and re-checking costs another stat per image and mask -- minutes
+        # on a network mount.  Re-validate the schema only.
         diagnostic_validation = validate_manifest(
             selected,
             manifest_path=diagnostic_path,
-            check_paths=True,
+            check_paths=False,
             require_mask=True,
         )
         if not diagnostic_validation["valid"]:
