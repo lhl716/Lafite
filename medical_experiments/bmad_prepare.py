@@ -25,6 +25,9 @@ BMAD_REVISION = "22cb97e1cfeeb9f677c6c57387347ce727625610"
 BMAD_ARCHIVE_NAME = "bmad.zip"
 BMAD_ARCHIVE_BYTES = 21_840_892_398
 BMAD_SUBSETS = ("Brain", "Liver")
+# An axial slice whose "lesion" fills this much of the frame is a decoding
+# artefact, not anatomy.
+MAX_LESION_COVERAGE = 0.9
 
 
 def _deps():
@@ -277,6 +280,37 @@ def _write_binary_image(path: Path, array: Any) -> None:
     Image.fromarray((np.asarray(array).astype(bool) * 255).astype("uint8"), mode="L").save(path)
 
 
+def _colour_planes(array: Any, mode: str) -> Any:
+    """Drop a trailing alpha plane.
+
+    An RGBA/LA PNG stores an opaque alpha channel, so reducing over the last
+    axis (max/any) marks every pixel as non-zero and silently turns a mask into
+    a full-frame blob or a brain outline into the whole slice.
+    """
+    np, _, _unused = _deps()
+    array = np.asarray(array)
+    if array.ndim == 3 and mode in ("RGBA", "LA", "PA") and array.shape[-1] > 1:
+        return array[..., :-1]
+    return array
+
+
+def _decode_lesion_mask(path: Path) -> Any:
+    """Read a label PNG as a boolean lesion mask, whatever its channel layout."""
+    np, Image, _unused = _deps()
+    raw = Image.open(path)
+    array = np.asarray(raw)
+    if array.ndim != 3:
+        return array > 0
+    colour = _colour_planes(array, raw.mode)
+    lesion = colour.any(axis=-1) if colour.ndim == 3 else colour > 0
+    if not lesion.any() and raw.mode in ("RGBA", "LA", "PA"):
+        # Colour planes are empty: the mask lives in alpha instead.
+        alpha = array[..., -1]
+        if alpha.any() and not alpha.all():
+            lesion = alpha > 0
+    return lesion
+
+
 def _derived_masks(image: Any, lesion: Any) -> Tuple[Any, Any]:
     np, _, ndimage = _deps()
     image = np.asarray(image)
@@ -338,18 +372,24 @@ def prepare_bmad_manifests(
             f"{dataset}:{item['patient_id']}:{item['image_path'].stem}".encode("utf-8")
         ).hexdigest()[:12]
         sample_id = f"{dataset.lower()}-{item['image_path'].stem}-{digest}"
-        image = np.asarray(Image.open(item["image_path"]))
+        raw_image = Image.open(item["image_path"])
+        image = _colour_planes(np.asarray(raw_image), raw_image.mode)
         shape = image.shape[:2]
         if item["raw_mask_path"]:
-            lesion = np.asarray(Image.open(item["raw_mask_path"]))
-            if lesion.ndim == 3:
-                lesion = lesion.any(axis=-1)
-            else:
-                lesion = lesion > 0
+            lesion = _decode_lesion_mask(item["raw_mask_path"])
         else:
             lesion = np.zeros(shape, dtype=bool)
         if lesion.shape != shape:
             raise ValueError(f"image/mask shape mismatch for {item['image_path']}: {shape} vs {lesion.shape}")
+        # A lesion covering essentially the whole slice is never real; it means
+        # the label PNG was decoded wrong.  Fail here rather than let every
+        # pixel-level metric downstream silently become meaningless.
+        coverage = float(np.asarray(lesion).mean())
+        if coverage > MAX_LESION_COVERAGE:
+            raise ValueError(
+                f"lesion mask covers {coverage:.1%} of the slice for {item['raw_mask_path']} "
+                f"(limit {MAX_LESION_COVERAGE:.0%}); the label PNG is not being decoded correctly"
+            )
 
         mask_path = prepared_root / "masks" / dataset.lower() / f"{sample_id}.png"
         nuisance_path = prepared_root / "nuisance_masks" / dataset.lower() / f"{sample_id}.png"
