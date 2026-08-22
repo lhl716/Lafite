@@ -55,6 +55,13 @@ import torch
 import torch.nn.functional as functional
 from scipy.ndimage import gaussian_filter
 from sklearn import metrics as sk_metrics
+from tqdm.auto import tqdm
+
+# UNetGD wraps its DDIM sampling loop in tqdm, which emits one bar per batch and
+# drowns the report.  Silence it here only -- training keeps its own bars.
+import lib.models.reconstructions.unetgd as _unetgd
+
+_unetgd.tqdm = lambda iterable=None, *a, **kw: iterable if iterable is not None else []
 
 EPS = 1e-8
 
@@ -71,6 +78,66 @@ def _auroc(scores: np.ndarray, labels: np.ndarray) -> Optional[float]:
     if labels.min() == labels.max():
         return None
     return float(sk_metrics.roc_auc_score(labels, scores))
+
+
+def _section(title: str) -> str:
+    return f"\n{'=' * 78}\n== {title}\n{'=' * 78}"
+
+
+def _pretty(value: Any) -> str:
+    """Render a scalar, list, or nested mapping without dumping raw repr()."""
+    if isinstance(value, float):
+        return f"{value:.4f}"
+    if isinstance(value, dict):
+        return "  ".join(f"{k}={_pretty(v)}" for k, v in value.items())
+    if isinstance(value, (list, tuple)):
+        if not value:
+            return "[]"
+        if len(value) > 6:
+            return f"[{len(value)} items] " + ", ".join(_pretty(v) for v in value[:6]) + ", ..."
+        return ", ".join(_pretty(v) for v in value)
+    return str(value)
+
+
+def _render_kv(mapping: Mapping[str, Any]) -> str:
+    if not mapping:
+        return "  (empty)"
+    width = max(len(str(key)) for key in mapping)
+    return "\n".join(f"  {str(key):<{width}} : {_pretty(value)}" for key, value in mapping.items())
+
+
+SWEEP_COLUMNS = (
+    ("infer_t", 8, lambda t, r: str(t)),
+    ("signal", 7, lambda t, r: f"{r['signal_fraction']:.1%}"),
+    ("pooled", 8, lambda t, r: _num(r["pixel_auroc_pooled"])),
+    ("fg_only", 8, lambda t, r: _num(r["pixel_auroc_pooled_foreground_only"])),
+    ("per_img", 8, lambda t, r: _num(r["pixel_auroc_per_image_mean"])),
+    ("znorm", 8, lambda t, r: _num(r["pixel_auroc_pooled_after_per_image_znorm"])),
+    ("d/F les", 9, lambda t, r: _num(r["relative_residual"]["lesion"])),
+    ("d/F tis", 9, lambda t, r: _num(r["relative_residual"]["normal_tissue"])),
+    ("d/F bg", 9, lambda t, r: _num(r["relative_residual"]["background"])),
+    ("img_max", 8, lambda t, r: _num(r["image_auroc_max_avgpool16"])),
+)
+
+
+def _num(value: Any) -> str:
+    if value is None:
+        return "n/a"
+    value = float(value)
+    return "nan" if value != value else f"{value:.4f}"
+
+
+def _render_sweep(sweep_results: Mapping[str, Any], order: Sequence[int]) -> str:
+    header = " ".join(f"{name:>{width}}" for name, width, _ in SWEEP_COLUMNS)
+    lines = [header, "-" * len(header)]
+    for infer_time in order:
+        result = sweep_results.get(str(infer_time))
+        if result is None:
+            continue
+        lines.append(
+            " ".join(f"{render(infer_time, result):>{width}}" for _, width, render in SWEEP_COLUMNS)
+        )
+    return "\n".join(lines)
 
 
 def _read_jsonl(path: Path) -> List[Dict[str, Any]]:
@@ -218,6 +285,7 @@ def run_pass(
     probe_negatives_per_positive: int,
     limit: int = 0,
     grid: int = 32,
+    desc: str = "pass",
 ) -> Collected:
     model.reconstruction.infer_time = int(infer_time)
     mean = torch.as_tensor(list(pixel_mean)).view(1, -1, 1, 1)
@@ -226,8 +294,13 @@ def run_pass(
     rng = np.random.default_rng(0)
     seen = 0
 
+    total = len(loader)
+    if limit > 0 and loader.batch_size:
+        total = min(total, -(-limit // loader.batch_size))
+    progress = tqdm(loader, desc=desc, total=total, leave=False, unit="batch")
+
     with torch.no_grad():
-        for batch in loader:
+        for batch in progress:
             if limit > 0 and seen >= limit:
                 break
             signed_deltas = []
@@ -299,6 +372,7 @@ def run_pass(
                 out.probe_norms.append(norms[chosen].astype(np.float32))
                 patient = patient_by_filename.get(filename, filename)
                 out.probe_patients.append(np.asarray([patient] * chosen.size))
+    progress.close()
     return out
 
 
@@ -470,10 +544,9 @@ def main() -> None:
         "val_meta": str(args.val_meta),
     }
 
-    print("== 1. cohort audit ==", flush=True)
+    print(_section("1. cohort audit"), flush=True)
     report["cohort"] = audit_cohort(args.val_meta, args.audit_limit)
-    for key, value in report["cohort"].items():
-        print(f"  {key}: {value}")
+    print(_render_kv(report["cohort"]), flush=True)
 
     rows = _read_jsonl(args.val_meta)
     patient_by_filename = {str(row["filename"]): str(row.get("patient_id", row["filename"])) for row in rows}
@@ -488,17 +561,13 @@ def main() -> None:
         sweep = [default_infer_time]
     probe_infer_time = args.probe_infer_time if args.probe_infer_time is not None else sweep[0]
 
-    print("\n== 2-4. residual forensics and infer_time sweep ==", flush=True)
-    header = (
-        f"{'infer_t':>8} {'signal':>7} {'pooled':>8} {'fg_only':>8} {'per_img':>8} "
-        f"{'znorm':>8} {'|d|/|F| les':>12} {'tis':>7} {'bg':>7} {'img_max':>8}"
-    )
-    print(header)
-    print("-" * len(header))
+    print(_section("2-4. residual forensics and infer_time sweep"), flush=True)
+    print(f"  sweeping infer_time over {sweep} ({len(sweep)} pass(es))", flush=True)
 
     sweep_results: Dict[str, Any] = {}
     probe_report: Dict[str, Any] = {"status": "skipped"}
-    for infer_time in sweep:
+    probe_collected = None
+    for position, infer_time in enumerate(sweep, start=1):
         collect_probe = (not args.skip_probe) and infer_time == probe_infer_time
         collected = run_pass(
             model,
@@ -512,29 +581,23 @@ def main() -> None:
             patient_by_filename,
             args.probe_negatives_per_positive,
             limit=args.limit,
+            desc=f"  pass {position}/{len(sweep)} (infer_time={infer_time})",
         )
         result = metric_forensics(collected)
         result["signal_fraction"] = _signal_fraction(infer_time)
         sweep_results[str(infer_time)] = result
-
-        rel = result["relative_residual"]
-        fmt = lambda value: "  n/a  " if value is None else f"{value:.4f}"
-        print(
-            f"{infer_time:>8} {result['signal_fraction']:>6.1%} "
-            f"{fmt(result['pixel_auroc_pooled']):>8} "
-            f"{fmt(result['pixel_auroc_pooled_foreground_only']):>8} "
-            f"{fmt(result['pixel_auroc_per_image_mean']):>8} "
-            f"{fmt(result['pixel_auroc_pooled_after_per_image_znorm']):>8} "
-            f"{rel['lesion']:>12.4f} {rel['normal_tissue']:>7.4f} {rel['background']:>7.4f} "
-            f"{fmt(result['image_auroc_max_avgpool16']):>8}",
-            flush=True,
-        )
-
         if collect_probe:
-            print("\n== 5. linear probe on residual channels ==", flush=True)
-            probe_report = run_probe(collected)
-            for key, value in probe_report.items():
-                print(f"  {key}: {value}")
+            probe_collected = collected
+        print(f"  pass {position}/{len(sweep)} done (infer_time={infer_time})", flush=True)
+
+    # The whole table is rendered once, after every pass, so the rows can be
+    # compared side by side instead of arriving one at a time between bars.
+    print("\n" + _render_sweep(sweep_results, sweep), flush=True)
+
+    if probe_collected is not None:
+        print(_section("5. linear probe on residual channels"), flush=True)
+        probe_report = run_probe(probe_collected)
+        print(_render_kv(probe_report), flush=True)
 
     report["sweep"] = sweep_results
     report["probe"] = probe_report
