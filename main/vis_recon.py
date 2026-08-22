@@ -53,7 +53,7 @@ def load_state_decoder(path, model):
     if os.path.isfile(path):
         print("=> loading checkpoint '{}'".format(path))
 
-        checkpoint = torch.load(path, map_location=map_func)
+        checkpoint = torch.load(path, map_location=map_func, weights_only=False)
         state_dict = checkpoint["state_dict"]
 
         state_dict_decoder = {}

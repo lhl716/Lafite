@@ -32,9 +32,12 @@ def _config(save_path):
 
 
 def _state(epoch, fill):
+    # "arch" mirrors the real payload: train_val_diff.py stores config.net, a
+    # list of EasyDicts. That is what makes torch>=2.6's weights_only default
+    # reject these checkpoints, so the dummy must carry it too.
     return {
         "epoch": epoch,
-        "arch": "dummy",
+        "arch": [EasyDict({"name": "backbone", "kwargs": {"pretrained": False}})],
         "best_metric": 0.5,
         "optimizer": {},
         "state_dict": {"layer.weight": torch.full((8, 8), float(fill))},
@@ -49,7 +52,7 @@ def test_round_trip(tmpdir):
     for name in ("ckpt.pth.tar", "ckpt_best.pth.tar", "ckpt_1.pth.tar"):
         path = Path(tmpdir) / name
         assert path.is_file(), f"missing {name}"
-        loaded = torch.load(str(path), map_location="cpu")
+        loaded = torch.load(str(path), map_location="cpu", weights_only=False)
         assert torch.equal(
             loaded["state_dict"]["layer.weight"], state["state_dict"]["layer.weight"]
         )
@@ -92,7 +95,7 @@ def test_failed_write_does_not_corrupt(tmpdir):
     assert after == before, (
         "ckpt.pth.tar was modified by an interrupted save -- atomic replace did not hold"
     )
-    torch.load(str(ckpt_path), map_location="cpu")  # still loadable
+    torch.load(str(ckpt_path), map_location="cpu", weights_only=False)  # still loadable
     print("OK (baseline untouched, error propagated instead of being silently written)")
 
 

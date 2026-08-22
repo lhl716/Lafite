@@ -35,7 +35,12 @@ def _load_checkpoint_with_retry(torch_module, checkpoint_path: Path, attempts: i
     last_error: Exception | None = None
     for attempt in range(1, attempts + 1):
         try:
-            return torch_module.load(str(checkpoint_path), map_location="cpu")
+            # weights_only defaults to True from PyTorch 2.6 and rejects the
+            # EasyDict that save_checkpoint stores under "arch"; these are our
+            # own checkpoints, so load them fully.
+            return torch_module.load(
+                str(checkpoint_path), map_location="cpu", weights_only=False
+            )
         except (EOFError, RuntimeError) as exc:
             last_error = exc
             if attempt < attempts:

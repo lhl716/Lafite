@@ -15,7 +15,10 @@ import torch
 import torch.distributed as dist
 import torch.optim
 from torch.nn.parallel import DistributedDataParallel as DDP
-from tensorboardX import SummaryWriter
+try:
+    from tensorboardX import SummaryWriter
+except ImportError:  # scalar logging is optional; training must not depend on it
+    SummaryWriter = None
 from tqdm.auto import tqdm
 
 from lib.datasets.data_builder import build_dataloader
@@ -168,10 +171,16 @@ def main():
         os.makedirs(config.save_path, exist_ok=True)
         os.makedirs(config.log_path, exist_ok=True)
 
-        tb_logger = SummaryWriter(config.log_path + "/events_dec/" + current_time)
+        tb_logger = (
+            SummaryWriter(config.log_path + "/events_dec/" + current_time)
+            if SummaryWriter is not None
+            else None
+        )
         logger = create_logger(
             "global_logger", config.log_path + "/dec_{}.log".format(current_time)
         )
+        if tb_logger is None:
+            logger.warning("tensorboardX is not installed; skipping scalar logging")
         logger.info("args: {}".format(pprint.pformat(args)))
         logger.info("config: {}".format(pprint.pformat(config)))
         logger.info(
@@ -394,9 +403,10 @@ def train_one_epoch(
             )
 
         if (curr_step + 1) % config.trainer.print_freq_step == 0 and rank == 0:
-            tb_logger.add_scalar("loss_train", losses.avg, curr_step + 1)
-            tb_logger.add_scalar("lr", current_lr, curr_step + 1)
-            tb_logger.flush()
+            if tb_logger is not None:
+                tb_logger.add_scalar("loss_train", losses.avg, curr_step + 1)
+                tb_logger.add_scalar("lr", current_lr, curr_step + 1)
+                tb_logger.flush()
 
             logger.info(
                 "Epoch: [{0}/{1}]\t"

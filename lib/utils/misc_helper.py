@@ -109,7 +109,10 @@ def load_state(path, model, optimizer=None):
         if rank == 0:
             print("=> loading checkpoint '{}'".format(path))
 
-        checkpoint = torch.load(path, map_location=map_func)
+        # weights_only defaults to True from PyTorch 2.6, which rejects our own
+        # checkpoints: save_checkpoint stores config.net (an easydict.EasyDict)
+        # under "arch".  These files are produced by this repo, so load fully.
+        checkpoint = torch.load(path, map_location=map_func, weights_only=False)
 
         ignore_keys = []
         for k, v in checkpoint["state_dict"].items():
