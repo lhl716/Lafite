@@ -352,7 +352,14 @@ def prepare_bmad_manifests(
     prepared_root.mkdir(parents=True, exist_ok=True)
     if max_slices_per_patient < 0 or semantic_patients_per_edge < 0:
         raise ValueError("slice/patient limits must be non-negative (0 means unlimited)")
-    records = _discover_subset(raw_root, "Brain") + _discover_subset(raw_root, "Liver")
+    # Discovery walks every PNG under raw_root, which takes minutes on a network
+    # mount.  Announce it, or the command looks hung before the first slice.
+    records = []
+    for subset in BMAD_SUBSETS:
+        print(f"Scanning {raw_root / subset} for slices (slow on network storage)...", flush=True)
+        found = _discover_subset(raw_root, subset)
+        print(f"  {subset}: {len(found)} slices", flush=True)
+        records.extend(found)
     patient_to_split = _patient_splits(records, seed)
     records = _limit_slices(records, max_slices_per_patient, seed)
     print(
