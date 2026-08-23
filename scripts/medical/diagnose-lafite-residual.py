@@ -286,6 +286,7 @@ def run_pass(
     limit: int = 0,
     grid: int = 32,
     desc: str = "pass",
+    smooth_sigma: float = 4.0,
 ) -> Collected:
     model.reconstruction.infer_time = int(infer_time)
     mean = torch.as_tensor(list(pixel_mean)).view(1, -1, 1, 1)
@@ -335,7 +336,10 @@ def run_pass(
                 filename = batch["filename"][index]
                 mask_map = masks[index].numpy() > 0
                 foreground = gray[index].numpy() > 0.05
-                out.preds.append(gaussian_filter(pred[index, 0].numpy(), sigma=4))
+                raw_map = pred[index, 0].numpy()
+                out.preds.append(
+                    gaussian_filter(raw_map, sigma=smooth_sigma) if smooth_sigma > 0 else raw_map
+                )
                 out.masks.append(mask_map)
                 out.foregrounds.append(foreground)
                 out.labels.append(int(batch["label"][index]))
@@ -532,6 +536,13 @@ def main() -> None:
     parser.add_argument("--probe-negatives-per-positive", type=int, default=3)
     parser.add_argument("--limit", type=int, default=0, help="cap slices per pass; <=0 for the whole cohort")
     parser.add_argument("--audit-limit", type=int, default=400, help="slices to open for the cohort audit; <=0 for all")
+    parser.add_argument(
+        "--smooth-sigma",
+        type=float,
+        default=4.0,
+        help="Gaussian sigma applied to the anomaly map (eval_helper hardcodes 4). "
+        "A small lesion can be narrower than this kernel, so sweep 0/1/2 on liver.",
+    )
     parser.add_argument("--skip-probe", action="store_true")
     parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args()
@@ -562,7 +573,7 @@ def main() -> None:
     probe_infer_time = args.probe_infer_time if args.probe_infer_time is not None else sweep[0]
 
     print(_section("2-4. residual forensics and infer_time sweep"), flush=True)
-    print(f"  sweeping infer_time over {sweep} ({len(sweep)} pass(es))", flush=True)
+    print(f"  sweeping infer_time over {sweep} ({len(sweep)} pass(es)), smooth_sigma={args.smooth_sigma:g}", flush=True)
 
     sweep_results: Dict[str, Any] = {}
     probe_report: Dict[str, Any] = {"status": "skipped"}
@@ -582,6 +593,7 @@ def main() -> None:
             args.probe_negatives_per_positive,
             limit=args.limit,
             desc=f"  pass {position}/{len(sweep)} (infer_time={infer_time})",
+            smooth_sigma=args.smooth_sigma,
         )
         result = metric_forensics(collected)
         result["signal_fraction"] = _signal_fraction(infer_time)
