@@ -150,6 +150,9 @@ def main():
 
     with args.config.open("r", encoding="utf-8") as handle:
         cfg = update_config(EasyDict(yaml.safe_load(handle)))
+    # build_dataloader builds train *and* test; drop train so it does not try to
+    # open the config's placeholder training meta_file.
+    cfg.dataset.pop("train", None)
     cfg.dataset.test.meta_file = str(args.val_meta)
     cfg.dataset.batch_size = 1
     cfg.dataset.workers = 0
