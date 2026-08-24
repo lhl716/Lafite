@@ -42,18 +42,26 @@ from scipy.ndimage import gaussian_filter
 EPS = 1e-8
 
 
-def _normalize01(array):
+def _normalize01(array, window=None):
+    """Scale to [0, 1].
+
+    `window` restricts the min/max to a region.  Organ-versus-background is by
+    far the largest contrast in the residual, so a global stretch saturates the
+    whole organ and hides the within-organ variation -- which is the only part
+    the per-image metrics actually score.
+    """
     array = np.asarray(array, dtype=np.float64)
-    low, high = float(np.nanmin(array)), float(np.nanmax(array))
+    reference = array if window is None or not np.any(window) else array[window]
+    low, high = float(np.nanmin(reference)), float(np.nanmax(reference))
     if high - low < EPS:
         return np.zeros_like(array)
-    return (array - low) / (high - low)
+    return np.clip((array - low) / (high - low), 0.0, 1.0)
 
 
-def _overlay(gray, heat, alpha=0.5):
+def _overlay(gray, heat, alpha=0.5, window=None):
     """Red-hot anomaly map composited over the grayscale slice."""
     base = np.repeat(_normalize01(gray)[..., None], 3, axis=2)
-    colour = plt.get_cmap("jet")(_normalize01(heat))[..., :3]
+    colour = plt.get_cmap("jet")(_normalize01(heat, window))[..., :3]
     return np.clip((1 - alpha) * base + alpha * colour, 0, 1)
 
 
@@ -177,6 +185,7 @@ def main():
             image = batch["image"].detach().float().cpu()
             gray = (image * std + mean)[0].mean(0).numpy()
             gt = batch["mask"].detach().float().cpu()[0, 0].numpy() > 0
+            organ = gray > 0.05
 
             heatmaps = {}
             trajectory = []
@@ -201,8 +210,10 @@ def main():
                 )
 
             best = heatmaps[sweep[-1]]
-            cutoff = float(np.percentile(best, args.threshold_percentile))
-            predicted = best >= cutoff
+            # Rank inside the organ: a global percentile is dominated by the
+            # organ-versus-background step and never reaches the lesion.
+            cutoff = float(np.percentile(best[organ], args.threshold_percentile)) if organ.any() else float("inf")
+            predicted = organ & (best >= cutoff)
 
             # --- localization -------------------------------------------------
             figure, axes = plt.subplots(1, 5, figsize=(20, 4.4))
@@ -213,9 +224,9 @@ def main():
             axes[0].set_title("slice")
             axes[1].imshow(gt, cmap="gray")
             axes[1].set_title(f"ground truth ({gt.mean():.4%} of frame)")
-            axes[2].imshow(best, cmap="jet")
-            axes[2].set_title(f"anomaly map (t={sweep[-1]}, sigma={args.smooth_sigma:g})")
-            axes[3].imshow(_overlay(gray, best))
+            axes[2].imshow(np.where(organ, _normalize01(best, organ), np.nan), cmap="jet")
+            axes[2].set_title(f"anomaly map in organ (t={sweep[-1]}, sigma={args.smooth_sigma:g})")
+            axes[3].imshow(_overlay(gray, best, window=organ))
             _contour(axes[3], gt, "white", "ground truth")
             axes[3].set_title("overlay")
             axes[3].legend(loc="lower right", fontsize=7)
@@ -234,14 +245,14 @@ def main():
             axes = np.atleast_2d(axes)
             for column, infer_time in enumerate(sweep):
                 heat = heatmaps[infer_time]
-                axes[0, column].imshow(heat, cmap="jet")
+                axes[0, column].imshow(np.where(organ, _normalize01(heat, organ), np.nan), cmap="jet")
                 axes[0, column].set_title(f"t={infer_time}")
-                axes[1, column].imshow(_overlay(gray, heat))
+                axes[1, column].imshow(_overlay(gray, heat, window=organ))
                 _contour(axes[1, column], gt, "white", "gt")
                 for row in (0, 1):
                     axes[row, column].set_xticks([])
                     axes[row, column].set_yticks([])
-            axes[0, 0].set_ylabel("anomaly map")
+            axes[0, 0].set_ylabel("anomaly map (organ)")
             axes[1, 0].set_ylabel("overlay")
             figure.suptitle(f"{stem} -- noise level sweep", fontsize=11)
             figure.tight_layout()
@@ -253,7 +264,7 @@ def main():
                 figure, axes = plt.subplots(1, len(trajectory), figsize=(3.4 * len(trajectory), 3.8))
                 axes = np.atleast_1d(axes)
                 for step, (axis, heat) in enumerate(zip(axes, trajectory), start=1):
-                    axis.imshow(heat, cmap="jet")
+                    axis.imshow(np.where(organ, _normalize01(heat, organ), np.nan), cmap="jet")
                     axis.set_title(f"DDIM step {step}/{len(trajectory)}")
                     axis.set_xticks([])
                     axis.set_yticks([])

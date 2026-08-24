@@ -93,7 +93,10 @@ net:
       self_condition: false
       timesteps: 1000
       use_input_norm: false
-      infer_time: 960
+      # Swept on the validation cohort: 800 beats the MVTec default of 960 on
+      # fg_only (0.8648 vs 0.8574), per_img (0.8232 vs 0.7973) and znorm
+      # (0.9076 vs 0.8716).  Brain peaks at 960 and keeps it.
+      infer_time: 800
       infer_use_ema: false
       sampling_timesteps: 6
       ddim_sampling_eta: 1
