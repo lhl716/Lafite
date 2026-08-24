@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
+import os
 import re
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional, Sequence, Tuple, Union
 
@@ -67,11 +71,40 @@ def save_feature_record(
         if field in packed_metadata and field not in payload:
             payload[field] = np.asarray(packed_metadata[field])
     payload["metadata_json"] = np.asarray(json.dumps(packed_metadata, ensure_ascii=False, sort_keys=True))
-    temporary = output.with_suffix(".npz.tmp")
-    with temporary.open("wb") as handle:
-        np.savez_compressed(handle, **payload)
-    temporary.replace(output)
+    _write_npz(np, output, payload)
     return output
+
+
+def _write_npz(np, output: Path, payload: Mapping[str, Any]) -> None:
+    """Write the archive, staging through local scratch when the target cannot seek.
+
+    ``np.savez_compressed`` builds a ZIP, and ``zipfile.close`` seeks backwards
+    to write the central directory.  Object-storage FUSE mounts accept ordinary
+    writes but fail that seek with ``OSError: [Errno 95]``, so build the archive
+    on a local filesystem and copy the finished bytes across.
+    """
+    temporary = output.with_suffix(".npz.tmp")
+    try:
+        with temporary.open("wb") as handle:
+            np.savez_compressed(handle, **payload)
+    except OSError as error:
+        if error.errno != errno.EOPNOTSUPP:
+            raise
+        temporary.unlink(missing_ok=True)
+        scratch_root = os.environ.get("LAFITE_CACHE_SCRATCH") or tempfile.gettempdir()
+        os.makedirs(scratch_root, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=scratch_root, suffix=".npz", delete=False) as staged:
+            staged_path = Path(staged.name)
+        try:
+            np.savez_compressed(str(staged_path), **payload)
+            # savez appends .npz when handed a path without one.
+            produced = staged_path if staged_path.exists() and staged_path.stat().st_size else Path(str(staged_path) + ".npz")
+            shutil.copyfile(produced, temporary)
+            if produced != staged_path:
+                produced.unlink(missing_ok=True)
+        finally:
+            staged_path.unlink(missing_ok=True)
+    temporary.replace(output)
 
 
 def load_feature_record(path: PathLike) -> Tuple[Dict[str, Any], Dict[str, Any]]:
