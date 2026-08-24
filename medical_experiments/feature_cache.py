@@ -40,6 +40,15 @@ def safe_sample_name(sample_id: str) -> str:
     return "%s--%s" % (name[:96], digest)
 
 
+def feature_record_path(cache_dir: PathLike, sample_id: str) -> Path:
+    """Where save_feature_record would put this sample.
+
+    Lets callers skip an expensive forward pass for a sample that is already
+    cached, instead of recomputing it only to discard the result on write.
+    """
+    return Path(cache_dir) / (safe_sample_name(str(sample_id)) + ".npz")
+
+
 def save_feature_record(
     cache_dir: PathLike,
     metadata: Mapping[str, Any],
@@ -54,7 +63,7 @@ def save_feature_record(
         raise ValueError("metadata must contain sample_id")
     output_dir = Path(cache_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    output = output_dir / (safe_sample_name(str(metadata["sample_id"])) + ".npz")
+    output = feature_record_path(output_dir, str(metadata["sample_id"]))
     if output.exists() and not overwrite:
         raise FileExistsError("feature cache already exists: %s" % output)
     payload = {str(key): np.asarray(value) for key, value in arrays.items()}

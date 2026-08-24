@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, Mapping, Tuple
 
 from .config import resolve_path
-from .feature_cache import save_feature_record
+from .feature_cache import feature_record_path, save_feature_record
 from .manifest import (
     assert_valid_manifest,
     manifest_fingerprint,
@@ -147,6 +147,12 @@ def export_lafite_features(config: Mapping[str, Any]) -> Dict[str, Any]:
                 config["split"]
             ):
                 continue
+            overwrite = bool(config.get("overwrite", False))
+            if not overwrite and feature_record_path(output_dir, str(record["sample_id"])).exists():
+                # Skip before the forward pass, so resuming an interrupted
+                # export does not recompute everything it already cached.
+                skipped += 1
+                continue
             image_path = Path(str(record["image"]))
             if not image_path.is_absolute():
                 image_path = manifest_path.parent / image_path
@@ -173,10 +179,12 @@ def export_lafite_features(config: Mapping[str, Any]) -> Dict[str, Any]:
             metadata = {key: value for key, value in record.items() if key != "report"}
             metadata.update({"source": "lafite", "mode": mode, "input_size": load_info["input_size"]})
             try:
-                save_feature_record(output_dir, metadata, arrays, overwrite=bool(config.get("overwrite", False)))
+                save_feature_record(output_dir, metadata, arrays, overwrite=overwrite)
                 exported += 1
             except FileExistsError:
                 skipped += 1
+            if (exported + skipped) % 200 == 0:
+                print(f"  exported {exported}, skipped {skipped}", flush=True)
     return {
         "output_dir": str(output_dir),
         "exported": exported,
