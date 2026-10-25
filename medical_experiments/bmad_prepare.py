@@ -47,7 +47,7 @@ def download_bmad(
     *,
     repo_id: str = BMAD_REPO_ID,
     revision: str = BMAD_REVISION,
-    endpoint: str = "https://hf-mirror.com",
+    endpoint: str = "https://huggingface.co",
 ) -> Path:
     """Download the pinned BMAD archive with Hugging Face cache/resume support."""
 
@@ -499,7 +499,7 @@ def run_bmad_preparation(
     data_root: Path,
     *,
     accept_license: bool,
-    endpoint: str = "https://hf-mirror.com",
+    endpoint: str = "https://huggingface.co",
     repo_id: str = BMAD_REPO_ID,
     revision: str = BMAD_REVISION,
     seed: int = 42,
@@ -551,3 +551,4 @@ def run_bmad_preparation(
             "extracted_files": extracted,
         },
     )
+

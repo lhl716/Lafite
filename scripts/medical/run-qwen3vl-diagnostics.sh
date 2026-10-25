@@ -20,7 +20,7 @@ USER_MLLM_MODEL_ID="Qwen/Qwen3-VL-8B-Instruct"
 USER_SINGLE_GPU="cuda:0"
 USER_QWEN_ATTENTION="sdpa"
 USER_LAFITE_PYTHON="python3"
-USER_HF_ENDPOINT="https://hf-mirror.com"
+USER_HF_ENDPOINT="https://huggingface.co"
 USER_HF_HOME="/data/oss_bucket_0/yunlin/dataset/bmad/huggingface-cache"
 # -----------------------------------------------------------------------------
 
@@ -165,3 +165,4 @@ case "${MODE}" in
   results) "${LAFITE_PYTHON}" "${SCRIPT_DIR}/show-qwen3vl-results.py" "${MEDICAL_OUTPUT_ROOT}" ;;
   *) echo "usage: $0 {exp1|exp2|exp3|all|results}" >&2; exit 2 ;;
 esac
+

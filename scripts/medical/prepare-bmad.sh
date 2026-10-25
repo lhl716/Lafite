@@ -7,7 +7,7 @@ set -euo pipefail
 # -----------------------------------------------------------------------------
 USER_ACCEPT_BMAD_LICENSE="false"
 USER_BMAD_DATA_ROOT="/data/oss_bucket_0/yunlin/dataset/bmad"
-USER_HF_ENDPOINT="https://hf-mirror.com"
+USER_HF_ENDPOINT="https://huggingface.co"
 USER_HF_REPO_ID="code-dev05/BMAD"
 USER_HF_REVISION="22cb97e1cfeeb9f677c6c57387347ce727625610"
 # Already downloaded BMAD archive; `prepare` never downloads it again.
@@ -113,3 +113,4 @@ if [[ "${MODE}" != "download" ]]; then
   echo "semantic manifest: ${BMAD_DATA_ROOT}/prepared/semantic-manifest.jsonl"
   echo "preparation report: ${BMAD_DATA_ROOT}/prepared/preparation-summary.json"
 fi
+

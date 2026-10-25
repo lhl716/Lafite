@@ -171,7 +171,7 @@ def build_parser() -> argparse.ArgumentParser:
         "prepare-bmad", help="download and prepare BMAD Brain MRI + Liver CT-PNG"
     )
     bmad.add_argument("--data-root", required=True)
-    bmad.add_argument("--endpoint", default="https://hf-mirror.com")
+    bmad.add_argument("--endpoint", default="https://huggingface.co")
     bmad.add_argument("--repo-id", default="code-dev05/BMAD")
     bmad.add_argument(
         "--revision", default="22cb97e1cfeeb9f677c6c57387347ce727625610"
@@ -229,3 +229,4 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     sys.exit(main())
+

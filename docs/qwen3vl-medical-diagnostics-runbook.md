@@ -40,10 +40,10 @@ bash scripts/medical/run-smoke-suite.sh
 ## 2. 一键准备 BMAD Brain MRI 与 Liver CT
 
 仓库默认使用 BMAD 的 Brain MRI 和 Liver CT 两个带像素级 mask 的子集。完整 BMAD
-压缩包约 20.3 GiB；脚本会通过 `hf-mirror.com` 下载固定 revision，并且只解压
+压缩包约 20.3 GiB；脚本会通过 `huggingface.co` 下载固定 revision，并且只解压
 `Brain/` 和 `Liver/`。请至少预留约 30 GiB 空间。
 
-先安装依赖，再打开 `scripts/medical/prepare-bmad-hf-mirror.sh`。阅读 BMAD 与原始数据源
+先安装依赖，再打开 `scripts/medical/prepare-bmad.sh`。阅读 BMAD 与原始数据源
 条款后，把：
 
 ```bash
@@ -54,7 +54,7 @@ USER_ACCEPT_BMAD_LICENSE="true"
 大文件连接问题，并支持断点续传：
 
 ```bash
-bash scripts/medical/prepare-bmad-hf-mirror.sh download
+bash scripts/medical/prepare-bmad.sh download
 ```
 
 如果希望完全手动执行下载，等价命令是：
@@ -62,7 +62,7 @@ bash scripts/medical/prepare-bmad-hf-mirror.sh download
 ```bash
 mkdir -p data/bmad/downloads
 wget -c --tries=20 --timeout=30 \
-  'https://hf-mirror.com/datasets/code-dev05/BMAD/resolve/22cb97e1cfeeb9f677c6c57387347ce727625610/bmad.zip?download=true' \
+  'https://huggingface.co/datasets/code-dev05/BMAD/resolve/22cb97e1cfeeb9f677c6c57387347ce727625610/bmad.zip?download=true' \
   -O data/bmad/downloads/bmad.zip
 ```
 
@@ -71,19 +71,19 @@ wget -c --tries=20 --timeout=30 \
 ```bash
 curl -L -C - --retry 20 --retry-all-errors --connect-timeout 30 \
   -o data/bmad/downloads/bmad.zip \
-  'https://hf-mirror.com/datasets/code-dev05/BMAD/resolve/22cb97e1cfeeb9f677c6c57387347ce727625610/bmad.zip?download=true'
+  'https://huggingface.co/datasets/code-dev05/BMAD/resolve/22cb97e1cfeeb9f677c6c57387347ce727625610/bmad.zip?download=true'
 ```
 
 第二步完全离线地校验压缩包、选择性解压、进行患者级重划分，并生成 mask 与 manifest：
 
 ```bash
-bash scripts/medical/prepare-bmad-hf-mirror.sh prepare
+bash scripts/medical/prepare-bmad.sh prepare
 ```
 
 网络稳定时也可以连续执行：
 
 ```bash
-bash scripts/medical/prepare-bmad-hf-mirror.sh all
+bash scripts/medical/prepare-bmad.sh all
 ```
 
 当前服务器预设从 `/home/yunlin.lhl/dataset/bmad.zip` 读取压缩包，并把解压数据、
@@ -91,7 +91,7 @@ bash scripts/medical/prepare-bmad-hf-mirror.sh all
 只运行：
 
 ```bash
-ACCEPT_BMAD_LICENSE=true bash scripts/medical/prepare-bmad-hf-mirror.sh prepare
+ACCEPT_BMAD_LICENSE=true bash scripts/medical/prepare-bmad.sh prepare
 ```
 
 默认输出：
@@ -218,7 +218,7 @@ USER_MLLM_MODEL_ID="Qwen/Qwen3-VL-8B-Instruct"
 USER_SINGLE_GPU="cuda:0"
 USER_QWEN_ATTENTION="sdpa"
 USER_LAFITE_PYTHON="python3"
-USER_HF_ENDPOINT="https://hf-mirror.com"
+USER_HF_ENDPOINT="https://huggingface.co"
 USER_HF_HOME="/data/model-cache/huggingface"
 ```
 
@@ -344,3 +344,4 @@ export EXP3_QWEN_DEVICE=cuda:3
 缓存默认 `overwrite: false`，中断后重跑会复用已完成且内容一致的样本。若更改了模型、输入尺寸、
 输入缩放、prompt 或 checkpoint，应使用新的 `MEDICAL_OUTPUT_ROOT`；不要把不同设置写进
 同一缓存目录。
+
