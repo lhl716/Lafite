@@ -1,25 +1,26 @@
-# LafitE × Qwen3-VL-8B 三项实验运行手册
+# LafitE × Qwen3-VL-8B: Three-Experiment Runbook
 
-这套配置使用 **MLLM**，具体模型默认为
-`Qwen/Qwen3-VL-8B-Instruct`。LLM 纯文本模型不能提供实验一所需的视觉层、
-projector 和图像 token，因此不适合替代它。
+This configuration uses an **MLLM**, defaulting to
+`Qwen/Qwen3-VL-8B-Instruct`. A text-only LLM cannot supply the vision layers,
+projector, and image tokens required by Experiment 1 and is therefore unsuitable as a replacement.
 
-运行脚本现在默认使用单卡并串行执行：
+The scripts now default to sequential execution on a single GPU:
 
-| 工作 | 默认设备 |
+| Task | Default device |
 | --- | --- |
-| 实验一 LafitE 特征 | `cuda:0` |
-| 实验一 Qwen3-VL 特征 | `cuda:0` |
-| 实验二 LafitE 干预评分 | `cuda:0` |
-| 实验三 Qwen3-VL 语义评分 | `cuda:0` |
+| Experiment 1: LafitE features | `cuda:0` |
+| Experiment 1: Qwen3-VL features | `cuda:0` |
+| Experiment 2: LafitE intervention scoring | `cuda:0` |
+| Experiment 3: Qwen3-VL semantic scoring | `cuda:0` |
 
-Qwen3-VL-8B 的 BF16 权重和单图中间状态可以放入一张 A100-80GB。各子命令是
-独立进程，前一个模型退出后才加载下一个模型，不会同时把 LafitE 和两份 Qwen 常驻显存。
+Qwen3-VL-8B's BF16 weights and intermediate states for one image fit on one A100-80GB.
+Each subcommand runs in a separate process. The next model loads only after the preceding
+process exits, so LafitE and two Qwen instances are not kept in GPU memory simultaneously.
 
-## 1. 安装
+## 1. Installation
 
-建议在 Linux/CUDA 服务器新建 Python 3.10 或 3.11 环境。不要在当前 macOS
-机器下载 8B 权重来验证 GPU 实验。
+Create a Python 3.10 or 3.11 environment on a Linux/CUDA server. Do not download 8B model
+weights to the current macOS machine to validate GPU experiments.
 
 ```bash
 conda create -n lafite-med python=3.10 -y
@@ -28,36 +29,37 @@ pip install -r requirements-medical.txt
 pip install -r requirements-lafite-medical.txt
 ```
 
-默认注意力实现是 PyTorch SDPA，能直接运行。A100 环境若已正确安装
-`flash-attn`，可设置 `QWEN_ATTENTION=flash_attention_2`。
+The default attention implementation is PyTorch SDPA and works directly. If
+`flash-attn` is correctly installed on the A100 environment, set
+`QWEN_ATTENTION=flash_attention_2`.
 
-先跑不下载模型的自检：
+First run the self-check, which does not download models:
 
 ```bash
 bash scripts/medical/run-smoke-suite.sh
 ```
 
-## 2. 一键准备 BMAD Brain MRI 与 Liver CT
+## 2. Prepare BMAD Brain MRI and Liver CT
 
-仓库默认使用 BMAD 的 Brain MRI 和 Liver CT 两个带像素级 mask 的子集。完整 BMAD
-压缩包约 20.3 GiB；脚本会通过 `huggingface.co` 下载固定 revision，并且只解压
-`Brain/` 和 `Liver/`。请至少预留约 30 GiB 空间。
+The repository defaults to BMAD's Brain MRI and Liver CT subsets, both with pixel-level masks.
+The full BMAD archive is approximately 20.3 GiB. The script downloads a pinned revision from
+`huggingface.co` and extracts only `Brain/` and `Liver/`. Reserve at least approximately 30 GiB.
 
-先安装依赖，再打开 `scripts/medical/prepare-bmad.sh`。阅读 BMAD 与原始数据源
-条款后，把：
+Install the dependencies, then open `scripts/medical/prepare-bmad.sh`. After reading the
+terms for BMAD and its original data sources, set:
 
 ```bash
 USER_ACCEPT_BMAD_LICENSE="true"
 ```
 
-推荐把下载与整理分成两步。第一步直接使用 `wget`/`curl`，避开 Python Hub/Xet
-大文件连接问题，并支持断点续传：
+Download and preparation are best performed in two steps. The first uses `wget`/`curl`
+directly to avoid Python Hub/Xet connection problems with large files and supports resuming:
 
 ```bash
 bash scripts/medical/prepare-bmad.sh download
 ```
 
-如果希望完全手动执行下载，等价命令是：
+The equivalent manual download command is:
 
 ```bash
 mkdir -p data/bmad/downloads
@@ -66,7 +68,7 @@ wget -c --tries=20 --timeout=30 \
   -O data/bmad/downloads/bmad.zip
 ```
 
-没有 `wget` 时可以使用：
+If `wget` is unavailable, use:
 
 ```bash
 curl -L -C - --retry 20 --retry-all-errors --connect-timeout 30 \
@@ -74,27 +76,28 @@ curl -L -C - --retry 20 --retry-all-errors --connect-timeout 30 \
   'https://huggingface.co/datasets/code-dev05/BMAD/resolve/22cb97e1cfeeb9f677c6c57387347ce727625610/bmad.zip?download=true'
 ```
 
-第二步完全离线地校验压缩包、选择性解压、进行患者级重划分，并生成 mask 与 manifest：
+The second step runs fully offline: it validates the archive, extracts selected files,
+creates new patient-level splits, and generates masks and manifests:
 
 ```bash
 bash scripts/medical/prepare-bmad.sh prepare
 ```
 
-网络稳定时也可以连续执行：
+With a stable connection, both steps can run consecutively:
 
 ```bash
 bash scripts/medical/prepare-bmad.sh all
 ```
 
-当前服务器预设从 `/home/yunlin.lhl/dataset/bmad.zip` 读取压缩包，并把解压数据、
-派生 mask 和 manifest 写入 `/data/oss_bucket_0/yunlin/dataset/bmad`。下载已经完成时，
-只运行：
+The current server preset reads the archive from `/home/yunlin.lhl/dataset/bmad.zip` and
+writes extracted data, derived masks, and manifests to
+`/data/oss_bucket_0/yunlin/dataset/bmad`. If the download is already complete, run only:
 
 ```bash
 ACCEPT_BMAD_LICENSE=true bash scripts/medical/prepare-bmad.sh prepare
 ```
 
-默认输出：
+Default outputs:
 
 ```text
 /data/oss_bucket_0/yunlin/dataset/bmad/prepared/medical-manifest.jsonl
@@ -102,43 +105,51 @@ ACCEPT_BMAD_LICENSE=true bash scripts/medical/prepare-bmad.sh prepare
 /data/oss_bucket_0/yunlin/dataset/bmad/prepared/preparation-summary.json
 ```
 
-下载支持断点续传，原始压缩包会保留。如果你已在浏览器或其他服务器下载了
-`bmad.zip`，设置 `USER_BMAD_ARCHIVE` 或环境变量 `BMAD_ARCHIVE` 后，只运行 `prepare`
-即可，不会访问网络。由于 BMAD 原始 valid/test 病人存在交叉，
-准备器按数据集和患者异常状态分层，重新进行确定性的 70/10/20 患者级划分；因此该
-manifest 用于本文三个诊断实验，但不能冒充官方 BMAD benchmark split。
+Downloads can resume, and the original archive is retained. If `bmad.zip` was downloaded
+through a browser or another server, set `USER_BMAD_ARCHIVE` or the `BMAD_ARCHIVE`
+environment variable and run only `prepare`; no network access is required. Because patients
+overlap between BMAD's original validation and test sets, the preparer creates new,
+deterministic 70/10/20 patient-level splits, stratified by dataset and patient abnormality
+status. This manifest is for these three diagnostic experiments and must not be presented
+as the official BMAD benchmark split.
 
-单卡先做 pilot 时，可以在同一脚本顶部设置：
+For an initial single-GPU pilot, set these values near the top of the same script:
 
 ```bash
 USER_MAX_SLICES_PER_PATIENT="4"
 USER_SEMANTIC_PATIENTS_PER_EDGE="25"
 ```
 
-前者限制每位患者用于实验一、二的切片数；后者限制实验三每个
-`organ×finding` 组合的患者数。`0` 表示保留完整数据。更改这两个值后重新运行会重写
-prepared manifest 和派生 mask，不会重新下载压缩包。
+The first limits slices per patient in Experiments 1 and 2; the second limits patients per
+`organ×finding` combination in Experiment 3. A value of `0` retains all data. Rerunning after
+changing these values rewrites prepared manifests and derived masks without downloading
+the archive again.
 
-注意：Liver 子集是预处理后的 PNG，不再具有原始 HU 数值，manifest 因而使用
-`CT_PNG` modality，不执行 HU window。脚本生成的 `nuisance_mask` 只覆盖体外黑色背景，
-`placebo_allowed_mask` 来自前景区域；它们是保守的候选干预区域。论文中的因果结论前，
-必须抽样可视化审核，必要时替换为人工/解剖学 mask。
+The Liver subset contains preprocessed PNGs and no longer retains original HU values.
+Its manifest therefore uses the `CT_PNG` modality and applies no HU window. The generated
+`nuisance_mask` covers only black background outside the body, while `placebo_allowed_mask`
+comes from the foreground. These are conservative candidate intervention regions. Before
+making causal claims in a paper, visually review a sample and replace them with manual or
+anatomical masks where needed.
 
-## 3. 重新训练 Brain/Liver LafitE
+## 3. Retrain Brain/Liver LafitE
 
-医学主实验不加载 MVTec/MPDD 异常检测 checkpoint。两套 LafitE 都从同一个
-ImageNet EfficientNet-B4 通用视觉初始化开始，只训练各自 normal training cohort 的
-扩散重建模块。BMAD PNG 在训练和诊断推理中统一使用原始 8-bit `/255` 与 ImageNet
-mean/std，不对 MRI 和 CT-PNG 采用两套不一致的强度变换。
+The main medical experiments do not load MVTec/MPDD anomaly-detection checkpoints.
+Both LafitE models start from the same general ImageNet EfficientNet-B4 initialization
+and train only their diffusion reconstruction modules on the corresponding normal
+training cohorts. During both training and diagnostic inference, BMAD PNGs consistently
+use original 8-bit values divided by 255 and ImageNet mean/std normalization, avoiding
+inconsistent intensity transforms between MRI and CT-PNG.
 
-先生成 LafitE 训练清单。默认采用严格正常患者策略：只要某位患者的任意切片有异常，
-该患者的其他正常切片也不会进入无监督训练集。
+First generate LafitE training manifests. The default policy is strictly patient-normal:
+if any slice from a patient is abnormal, that patient's other normal slices are also
+excluded from unsupervised training.
 
 ```bash
 bash scripts/medical/train-bmad-lafite.sh prepare
 ```
 
-单卡按顺序训练和校准：
+Train and calibrate sequentially on one GPU:
 
 ```bash
 bash scripts/medical/train-bmad-lafite.sh brain
@@ -147,21 +158,22 @@ bash scripts/medical/train-bmad-lafite.sh liver
 bash scripts/medical/train-bmad-lafite.sh calibrate-liver
 ```
 
-也可以一次串行完成：
+Or run the full sequence:
 
 ```bash
 bash scripts/medical/train-bmad-lafite.sh all
 ```
 
-脚本默认运行 1000 epochs、batch size 64，每 50 epochs 验证和保存一次。在第一次正式
-长跑前，可用下列命令验证完整训练链；正式运行会从该 checkpoint 自动续训：
+By default, the script runs 1000 epochs with batch size 64, validating and saving every
+50 epochs. Before the first full run, validate the complete training pipeline with the
+following command. The full run will resume automatically from its checkpoint:
 
 ```bash
 MAX_EPOCHS=2 VAL_FREQ=1 SAVE_STEP=1 BATCH_SIZE=8 \
   bash scripts/medical/train-bmad-lafite.sh brain
 ```
 
-默认产物：
+Default artifacts:
 
 ```text
 /data/oss_bucket_0/yunlin/dataset/bmad/prepared/lafite/brain-train.jsonl
@@ -172,36 +184,39 @@ MAX_EPOCHS=2 VAL_FREQ=1 SAVE_STEP=1 BATCH_SIZE=8 \
 /data/oss_bucket_0/yunlin/dataset/bmad/lafite-runs/liver/calibration.json
 ```
 
-`USER_EFFICIENTNET_B4_WEIGHTS` 留空时，原 EfficientNet 实现会下载 ImageNet 权重并缓存。
-服务器不能访问 GitHub release 时，先把 `efficientnet-b4-6ed6700e.pth` 放到本地，再在
-`scripts/medical/train-bmad-lafite.sh` 顶部填写该路径。这是通用 ImageNet 初始化，不是
-工业缺陷 checkpoint。
+If `USER_EFFICIENTNET_B4_WEIGHTS` is empty, the original EfficientNet implementation
+downloads and caches ImageNet weights. If the server cannot access GitHub releases,
+place `efficientnet-b4-6ed6700e.pth` locally and enter its path near the top of
+`scripts/medical/train-bmad-lafite.sh`. This is general ImageNet initialization, not an
+industrial-defect checkpoint.
 
-## 4. 自备数据时的 manifest 格式
+## 4. Manifest Format for Your Own Data
 
-实验一、二至少需要：
+Experiments 1 and 2 require at least:
 
 ```json
 {"sample_id":"case001-z042","patient_id":"case001","image":"/data/case001.npy","mask":"/data/case001-mask.npy","nuisance_mask":"/data/case001-nuisance.npy","slice_index":42,"depth_axis":0,"split":"test","modality":"CT","label":1}
 ```
 
-实验三还要求每行包含 `organ`、`region` 和 `finding`，并且 evidence-present
-条件必须有 `image`。可以使用同一个总 manifest，也可以另设一个语义 manifest。
+Experiment 3 additionally requires `organ`, `region`, and `finding` on each line, and the
+evidence-present condition requires `image`. Use either one shared manifest or a separate
+semantic manifest.
 
-数据要求：
+Data requirements:
 
-- 同一 `patient_id` 只能出现在一个 split；
-- 实验一必须同时有 train、val、test，并且 train/val 中要有正例 mask；
-- 实验二的 test 正例需要 lesion mask，所有参与干预的样本需要预先审核的
-  `nuisance_mask`；
-- Brain/Liver 的 mask threshold 与 score threshold 必须分别只用各自 val 集确定；
-- BMAD 的 MRI 和 CT-PNG 都是预处理 PNG，当前固定使用 `uint8_passthrough`。换成原始
-  NIfTI/DICOM 后必须同时修改训练和推理预处理。
+- Each `patient_id` may occur in only one split.
+- Experiment 1 requires train, val, and test splits, with positive masks in train and val.
+- Positive test cases in Experiment 2 require lesion masks; every sample used for
+  interventions requires a previously reviewed `nuisance_mask`.
+- Brain and Liver mask and score thresholds must be determined separately using only
+  their respective validation sets.
+- BMAD MRI and CT-PNG are both preprocessed PNGs and currently use `uint8_passthrough`.
+  Switching to raw NIfTI/DICOM requires changing both training and inference preprocessing.
 
-## 5. 在运行脚本中设置路径和阈值
+## 5. Set Paths and Thresholds in the Run Script
 
-打开 `scripts/medical/run-qwen3vl-diagnostics.sh`，只修改文件顶部的
-`User settings` 区域：
+Open `scripts/medical/run-qwen3vl-diagnostics.sh` and edit only the `User settings`
+section at the top:
 
 ```bash
 USER_BMAD_DATA_ROOT=""
@@ -222,21 +237,26 @@ USER_HF_ENDPOINT="https://huggingface.co"
 USER_HF_HOME="/data/model-cache/huggingface"
 ```
 
-checkpoint 和阈值留空时，脚本自动读取上一节训练与校准产生的默认文件。Brain 与 Liver
-始终分开运行、分开报告，不会再让同一个 LafitE checkpoint 处理两种模态。
-如果 Qwen 权重已在本地，把 `USER_MLLM_MODEL_ID` 改成本地目录。脚本仍允许同名环境
-变量覆盖这些值，因此 Slurm 等调度任务不需要修改仓库文件。
+When checkpoint paths and thresholds are left empty, the script reads the default files
+produced by training and calibration above. Brain and Liver always run and report
+separately; one LafitE checkpoint is no longer used for both modalities.
+If Qwen weights are already local, set `USER_MLLM_MODEL_ID` to their directory.
+Environment variables with the same names can still override these values, so scheduler
+jobs such as Slurm jobs do not need to modify repository files.
 
-手工填写阈值只用于复现实验；新训练默认读取两份 `calibration.json`，避免在 test 集反推。
+Manual threshold entries are intended only for reproducing experiments. New training runs
+read the two `calibration.json` files by default, avoiding threshold selection from test data.
 
-训练 checkpoint、TensorBoard 日志和校准结果可以保存在 OSS，但 LafitE validation 会用
-`np.savez` 生成需要随机 seek 的临时 ZIP。训练脚本因此默认把这些临时文件写到本机
-`/tmp/lafite-eval`，验证结束后自动删除。不要把 `USER_LAFITE_LOCAL_SCRATCH` 改成 OSS
-路径；本机 `/tmp` 空间不足时，应改成计算节点的本地 NVMe/scratch 目录。
+Training checkpoints, TensorBoard logs, and calibration results can be stored on OSS.
+However, LafitE validation creates temporary ZIP files with `np.savez` that require random
+seeks. The training script therefore writes these temporary files to local
+`/tmp/lafite-eval` by default and deletes them after validation. Do not set
+`USER_LAFITE_LOCAL_SCRATCH` to an OSS path. If local `/tmp` space is insufficient, use a
+local NVMe/scratch directory on the compute node.
 
-## 6. 运行三个实验
+## 6. Run the Three Experiments
 
-建议先逐项运行，便于发现数据问题：
+Run experiments individually first to make data problems easier to identify:
 
 ```bash
 bash scripts/medical/run-qwen3vl-diagnostics.sh exp1
@@ -244,51 +264,56 @@ bash scripts/medical/run-qwen3vl-diagnostics.sh exp2
 bash scripts/medical/run-qwen3vl-diagnostics.sh exp3
 ```
 
-数据和阈值都确认后也可以连续运行：
+Once data and thresholds have been checked, run them consecutively:
 
 ```bash
 bash scripts/medical/run-qwen3vl-diagnostics.sh all
 ```
 
-### 6.1 单卡大致耗时
+### 6.1 Approximate Single-GPU Runtime
 
-耗时主要由样本数 `N` 和实验三候选 finding 数 `K` 决定。以下只是
-**A100-80GB、512×512、Qwen3-VL-8B、SDPA 的量级预估**，不是本仓库在你的数据上的
-实测 benchmark：
+Runtime depends mainly on the number of samples `N` and the number of candidate findings
+`K` in Experiment 3. These are **order-of-magnitude estimates for an A100-80GB, 512×512
+inputs, Qwen3-VL-8B, and SDPA**, not benchmarks measured by this repository on your data:
 
-| 实验 | 主要计算量 | 小规模 pilot 的常见量级 |
+| Experiment | Main computation | Typical small-pilot scale |
 | --- | --- | --- |
-| Brain LafitE 训练 | normal-patient train，扩散重建 | 完整 1000 epochs：约 4–10 小时 |
-| Liver LafitE 训练 | normal-patient train，扩散重建 | 完整 1000 epochs：约 2–6 小时 |
-| 实验一 | 每张图一次 LafitE、一次 Qwen，再训练多个等容量 probe | `N≈200–500`：约 20–90 分钟 |
-| 实验二 | 正例约 4 个 LafitE 变体，正常例约 2 个变体 | `N≈200–500`：约 5–30 分钟 |
-| 实验三 | 约 `4 × N × K` 次 Qwen 条件评分前向 | `N≈100, K≈5`：约 20–90 分钟 |
+| Brain LafitE training | Normal-patient training, diffusion reconstruction | Full 1000 epochs: about 4–10 hours |
+| Liver LafitE training | Normal-patient training, diffusion reconstruction | Full 1000 epochs: about 2–6 hours |
+| Experiment 1 | One LafitE and one Qwen pass per image, then multiple equal-capacity probes | `N≈200–500`: about 20–90 minutes |
+| Experiment 2 | About four LafitE variants per positive case and two per normal case | `N≈200–500`: about 5–30 minutes |
+| Experiment 3 | About `4 × N × K` Qwen conditional-scoring forward passes | `N≈100, K≈5`: about 20–90 minutes |
 
-实验三通常最慢。例如 `N=500, K=10` 就是约 20,000 次模型前向，可能需要数小时。
-首次运行还会下载/加载模型，不能把这段时间算入稳定吞吐。建议先准备一个患者级 pilot
-manifest（每个 split 均保留，约 50–100 位患者）测出本机每样本耗时，再按下面公式估算：
+Experiment 3 is usually the slowest. For example, `N=500, K=10` means approximately
+20,000 forward passes and may take several hours. Initial model downloads and loading
+must not be included in steady-state throughput. First prepare a patient-level pilot
+manifest of about 50–100 patients, retaining every split, measure time per sample on
+the actual machine, then estimate:
 
 ```text
-实验一总时长 ≈ 实验一 pilot 时长 × 完整样本数 / pilot 样本数
-实验二总时长 ≈ 实验二 pilot 时长 × 完整样本数 / pilot 样本数
-实验三总时长 ≈ 实验三 pilot 时长 × (完整 N×K) / (pilot N×K)
+Experiment 1 total time ≈ Experiment 1 pilot time × full sample count / pilot sample count
+Experiment 2 total time ≈ Experiment 2 pilot time × full sample count / pilot sample count
+Experiment 3 total time ≈ Experiment 3 pilot time × (full N×K) / (pilot N×K)
 ```
 
-不要随机抽切片造成患者泄漏；pilot 也应按 `patient_id` 整体抽取。缓存默认保留，模型
-导出中断后可以继续。
+Do not randomly subsample slices in a way that leaks patients. Pilot sampling must also
+select whole `patient_id` groups. Caches are retained by default, and model export can
+resume after interruption.
 
-实验一固定 512×512 输入。Qwen3-VL 缓存的空间表示为：
+Experiment 1 uses fixed 512×512 inputs. Qwen3-VL caches these spatial representations:
 
-- vision block 2：`32×32` pre-merger patch grid；
-- vision block 26：`32×32` pre-merger patch grid；
-- visual merger/projector：`16×16` image-token grid；
-- LLM hidden state 18、36：从完整序列中只抽取 `16×16` image token。
+- Vision block 2: a `32×32` pre-merger patch grid.
+- Vision block 26: a `32×32` pre-merger patch grid.
+- Visual merger/projector: a `16×16` image-token grid.
+- LLM hidden states 18 and 36: only the `16×16` image tokens extracted from the full sequence.
 
-实验三不是生成报告，而是计算每个候选 finding 的平均 token 条件对数概率，
-并自动运行 image present/absent × knowledge intact/shuffled 四条件。默认知识文本只用
-候选名称；正式论文实验应在
-`experiments/medical-diagnostics/qwen3-vl-8b/exp3-export-scores.yaml` 的
-`factory_kwargs.knowledge` 中预注册候选定义，或改用 `knowledge_file` 指向 JSON：
+Experiment 3 computes the mean token conditional log-probability of each candidate finding,
+rather than generating reports. It automatically runs all four image present/absent ×
+knowledge intact/shuffled conditions. Default knowledge text contains only candidate names.
+For formal paper experiments, preregister candidate definitions in
+`factory_kwargs.knowledge` in
+`experiments/medical-diagnostics/qwen3-vl-8b/exp3-export-scores.yaml`, or set `knowledge_file`
+to a JSON file:
 
 ```json
 {
@@ -297,41 +322,46 @@ manifest（每个 split 均保留，约 50–100 位患者）测出本机每样�
 }
 ```
 
-## 7. 查看结果
+## 7. Inspect Results
 
-一条命令打印三项核心指标：
+Print the three core metrics with one command:
 
 ```bash
 bash scripts/medical/run-qwen3vl-diagnostics.sh results
 ```
 
-原始结果文件为：
+Raw result files:
 
-| 实验 | 主结果 |
+| Experiment | Main result |
 | --- | --- |
-| 实验一 | `$MEDICAL_OUTPUT_ROOT/{brain,liver}/exp1/probe-summary.json` |
-| 实验二 | `$MEDICAL_OUTPUT_ROOT/{brain,liver}/exp2/evaluation-summary.json` |
-| 实验三 | `$MEDICAL_OUTPUT_ROOT/exp3/evaluation-summary.json` |
+| Experiment 1 | `$MEDICAL_OUTPUT_ROOT/{brain,liver}/exp1/probe-summary.json` |
+| Experiment 2 | `$MEDICAL_OUTPUT_ROOT/{brain,liver}/exp2/evaluation-summary.json` |
+| Experiment 3 | `$MEDICAL_OUTPUT_ROOT/exp3/evaluation-summary.json` |
 
-解释顺序：
+Interpret results in this order:
 
-1. **实验一**：比较 `vision_early → vision_last → projector → llm_deep` 的
-   positive-patient Dice/AUPRC。持续下降说明局部信息在语义对齐链路中变得不可解码；
-   `projector_plus_residual` 或 `llm_deep_plus_residual` 明显回升，且 residual 空间打乱
-   后增益消失，才支持 LafitE residual 提供增量局部证据。
-2. **实验二**：首先看 shortcut gate 是否为 `pass`。病灶移除应显著降低分数，
-   nuisance/placebo 改动应很小；重点检查 nuisance/lesion ratio、正常病例 FPR 增幅
-   和所有 triggered red flags。
-3. **实验三**：只把 unseen `organ×finding` 作为关键结果。Qwen3-VL 应超过
-   frequency 与 small_embedding；同时 image removal 和 knowledge shuffle 应让性能下降，
-   evidence×knowledge interaction 的 MRR 最好为正且置信区间不跨零。
+1. **Experiment 1:** compare positive-patient Dice/AUPRC along
+   `vision_early → vision_last → projector → llm_deep`. A sustained decrease indicates
+   that local information becomes less decodable along the semantic-alignment pathway.
+   Support for additional local evidence from the LafitE residual requires a clear
+   recovery with `projector_plus_residual` or `llm_deep_plus_residual`, and loss of that
+   gain after spatially shuffling the residual.
+2. **Experiment 2:** first check whether the shortcut gate is `pass`. Lesion removal
+   should substantially lower scores, while nuisance/placebo changes should have small
+   effects. Focus on the nuisance/lesion ratio, normal-case FPR increases, and all
+   triggered red flags.
+3. **Experiment 3:** treat unseen `organ×finding` combinations as the key results.
+   Qwen3-VL should beat frequency and small_embedding baselines, and performance should
+   decline after image removal and knowledge shuffling. Ideally, the MRR
+   evidence×knowledge interaction is positive with a confidence interval excluding zero.
 
-这些 gate 不能仅凭一个点估计判定。患者数、bootstrap CI、编辑质量和预注册阈值必须
-一起检查。
+Do not decide these gates from a point estimate alone. Review patient counts, bootstrap
+confidence intervals, editing quality, and preregistered thresholds together.
 
-## 8. 设备与重跑控制
+## 8. Devices and Rerun Controls
 
-默认只需在 shell 顶部设置 `USER_SINGLE_GPU="cuda:0"`。需要重新拆到多卡时，才覆盖：
+By default, setting `USER_SINGLE_GPU="cuda:0"` at the top of the shell script is sufficient.
+To distribute work across multiple GPUs again, override:
 
 ```bash
 export EXP1_LAFITE_DEVICE=cuda:0
@@ -341,7 +371,6 @@ export EXP2_LAFITE_DEVICE=cuda:2
 export EXP3_QWEN_DEVICE=cuda:3
 ```
 
-缓存默认 `overwrite: false`，中断后重跑会复用已完成且内容一致的样本。若更改了模型、输入尺寸、
-输入缩放、prompt 或 checkpoint，应使用新的 `MEDICAL_OUTPUT_ROOT`；不要把不同设置写进
-同一缓存目录。
-
+Caches default to `overwrite: false`. After interruption, reruns reuse completed samples
+whose contents match. If the model, input dimensions, input scaling, prompt, or checkpoint
+changes, use a new `MEDICAL_OUTPUT_ROOT`. Do not mix different settings in one cache directory.

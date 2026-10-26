@@ -1,143 +1,143 @@
-# LafitE × MLLM 医学诊断实验
+# LafitE × MLLM Medical Diagnostic Experiments
 
-本目录实现三项 **go/no-go 诊断实验**，用于在设计完整融合模型之前检验三个前提：
+This directory implements three **go/no-go diagnostic experiments** to test three premises before designing a complete fusion model:
 
-1. 病灶局部信息是否在视觉编码器、projector 或 LLM 中逐步变得不可解码；
-2. 异常输出是否因果依赖病灶以外的非临床干扰；
-3. LLM 是否在有视觉证据时提供小模型无法替代的组合知识。
+1. Whether local lesion information becomes progressively undecodable in the vision encoder, projector, or LLM.
+2. Whether anomaly outputs causally depend on nonclinical nuisance factors outside the lesion.
+3. Whether an LLM provides compositional knowledge that a small model cannot replace when visual evidence is available.
 
-这些程序不是论文结果本身。正式结论必须来自真实医学数据、患者级划分、锁定测试集和患者聚类统计。
+These programs do not constitute paper results. Formal conclusions require real medical data, patient-level splits, a locked test set, and patient-clustered statistics.
 
-## 1. 安装与快速自检
+## 1. Installation and Quick Checks
 
-原 LafitE 训练依赖仍在 `requirements.txt`；诊断核心及 NIfTI、DICOM、MLLM 适配依赖在 `requirements-medical.txt`。完整 LafitE 训练应在相应 CUDA 环境另行安装 `requirements.txt`，因为其中 `faiss_gpu` 不适用于 CPU/macOS 环境。
+The original LafitE training dependencies remain in `requirements.txt`. Core diagnostic dependencies and NIfTI, DICOM, and MLLM adapters are in `requirements-medical.txt`. Install `requirements.txt` separately in an appropriate CUDA environment for full LafitE training: its `faiss_gpu` dependency is unsuitable for CPU/macOS environments.
 
 ```bash
 pip install -r requirements-medical.txt
 bash scripts/medical/run-smoke-suite.sh
 ```
 
-冒烟脚本会生成非医学合成数组，并依次运行三个实验。结果默认写到 `outputs/medical-smoke/`。合成结果只能验证代码和数据契约，不能进入论文表格。
+The smoke script generates nonmedical synthetic arrays and runs all three experiments in sequence. Results are written to `outputs/medical-smoke/` by default. Synthetic results validate only the code and data contracts; they must not be included in paper result tables.
 
-所有命令也可以独立运行：
+Commands can also be run independently:
 
 ```bash
 python -m medical_experiments --help
 python -m medical_experiments validate-manifest data.jsonl --check-paths
 ```
 
-## 2. 统一数据清单
+## 2. Shared Data Manifest
 
-实验一、二共用 JSONL 清单，一行表示一个 2D 切片或一个 3D 体积：
+Experiments 1 and 2 share a JSONL manifest, with one 2D slice or 3D volume per line:
 
 ```json
 {"sample_id":"case001-z042","patient_id":"case001","image":"/data/case001.nii.gz","mask":"/data/case001-mask.nii.gz","slice_index":42,"depth_axis":2,"split":"train","modality":"CT","label":1}
 ```
 
-必需字段：
+Required fields:
 
-- `sample_id`：样本唯一标识；
-- `patient_id`：患者唯一标识；
-- `image`：NPY、NPZ、NIfTI、普通图像或 DICOM 序列目录；
-- `split`：`train`、`val`、`test`、`calibration` 或 `external`。
+- `sample_id`: a unique sample identifier.
+- `patient_id`: a unique patient identifier.
+- `image`: an NPY, NPZ, NIfTI, ordinary image, or DICOM series directory.
+- `split`: `train`, `val`, `test`, `calibration`, or `external`.
 
-定位任务还需要 `mask`。可选字段包括：
+Localization tasks also require `mask`. Optional fields include:
 
-- `image_key`、`mask_key`：NPZ 中的数组键；
-- `slice_index`、`depth_axis`、`mask_depth_axis`：从体积抽取切片；
-- `normal_reference`：配准后的正常参考；
-- `nuisance_mask`：预先定义的非临床干扰区域；
-- `placebo_mask`：人工审核过的等面积安慰剂区域；
-- `placebo_allowed_mask`：限制自动/显式 placebo 只能落在同器官或同组织的区域；
-- `organ`、`region`、`finding`、`report`：实验三语义字段。
+- `image_key`, `mask_key`: array keys in NPZ files.
+- `slice_index`, `depth_axis`, `mask_depth_axis`: settings for extracting slices from volumes.
+- `normal_reference`: a registered normal reference.
+- `nuisance_mask`: a predefined nonclinical nuisance region.
+- `placebo_mask`: a manually reviewed, equal-area placebo region.
+- `placebo_allowed_mask`: a region restricting automatic or explicit placebo edits to the same organ or tissue.
+- `organ`, `region`, `finding`, `report`: semantic fields for Experiment 3.
 
-必须先检查泄漏：
+Check for leakage first:
 
 ```bash
 python -m medical_experiments validate-manifest /path/to/manifest.jsonl \
   --check-paths --require-mask
 ```
 
-如果同一 `patient_id` 出现在多个 split，程序直接失败。需要新建划分时：
+The program fails if the same `patient_id` appears in multiple splits. To create a new split:
 
 ```bash
 python -m medical_experiments split-patients raw.jsonl split.jsonl \
   --train 0.7 --val 0.1 --test 0.2 --stratify modality --seed 42
 ```
 
-切片不能作为统计独立样本；训练随机种子也不能作为临床样本量。
+Slices are not statistically independent samples. Training random seeds must not be counted as clinical sample size either.
 
-## 3. 医学预处理约束
+## 3. Medical Preprocessing Constraints
 
-`medical_io.py` 支持：
+`medical_io.py` supports:
 
-- CT：固定 HU 窗并映射到 `[0,1]`；
-- MRI：前景内稳健百分位裁剪和 z-normalization；
-- 2.5D：用相邻切片组成三通道；
-- NPY/NPZ、NIfTI、常见二维图像和 DICOM 序列。
+- CT: a fixed HU window mapped to `[0,1]`.
+- MRI: robust percentile clipping and z-normalization within the foreground.
+- 2.5D: three channels formed from neighboring slices.
+- NPY/NPZ, NIfTI, common 2D images, and DICOM series.
 
-正式比较中，所有 representation stage 必须使用同一 CT 窗、MRI 序列和切片规则。建议把 224、448 和原生滑窗分别缓存，避免把 resize 损失误写成“语义对齐损失”。
+For formal comparisons, all representation stages must use the same CT window, MRI sequence, and slice-selection rules. Cache 224-pixel, 448-pixel, and native-resolution sliding-window inputs separately to avoid attributing resize losses to semantic alignment.
 
-## 4. 实验一：局部细节可解码性
+## 4. Experiment 1: Decodability of Local Detail
 
-### 4.1 先缓存冻结模型表示
+### 4.1 Cache Frozen-Model Representations First
 
-LafitE：
+LafitE:
 
 ```bash
 python -m medical_experiments export-lafite \
   --config experiments/medical-diagnostics/export-lafite.example.yaml
 ```
 
-缓存包含：
+The cache contains:
 
-- `feature_align`；
-- `feature_rec`；
-- `lafite_residual = abs(feature_align - feature_rec)`；
-- `lafite_pred`；
-- GT `mask` 和患者元数据。
+- `feature_align`.
+- `feature_rec`.
+- `lafite_residual = abs(feature_align - feature_rec)`.
+- `lafite_pred`.
+- Ground-truth `mask` and patient metadata.
 
-任意 MLLM 通过 factory 与 forward hook 接入：
+Other MLLMs can be connected through a factory and forward hooks:
 
 ```bash
 python -m medical_experiments export-mllm \
   --config experiments/medical-diagnostics/export-mllm.example.yaml
 ```
 
-factory 接口为：
+The factory interface is:
 
 ```python
 def build_bundle(kwargs):
     return {
         "model": frozen_model,
         "preprocess": lambda image_hwc, record: model_inputs,
-        # 可选，缺省为 model(**model_inputs)
+        # Optional; defaults to model(**model_inputs).
         "forward": lambda model, model_inputs: model(**model_inputs),
-        # 可选，用于无法通过 module hook 取得的输出
+        # Optional; for outputs unavailable through module hooks.
         "extract_output": lambda output: {"llm_deep": output.hidden_states[-1]},
     }
 ```
 
-配置中的 `taps` 指定真实模块名。例如分别挂接 vision early、vision last 和 projector。不同 MLLM 的内部模块名不同，因此仓库不硬编码某个 LLaVA/Qwen/InternVL 版本。
+The configuration's `taps` specify actual module names, for example hooks on early vision layers, the final vision layer, and the projector. Internal names vary between MLLMs, so the repository does not hard-code a particular LLaVA, Qwen, or InternVL version.
 
-默认会在调用 MLLM preprocess/prompt builder 前移除 `finding`、`report`、`label`、GT mask 等目标字段，避免表征缓存本身已经被标签条件化。
+By default, target fields such as `finding`, `report`, `label`, and the ground-truth mask are removed before the MLLM preprocessor or prompt builder is called, preventing label-conditioned representation caches.
 
-合并两类缓存：
+Merge the two types of cache:
 
 ```bash
 python -m medical_experiments merge-features \
   --config experiments/medical-diagnostics/merge-features.example.yaml
 ```
 
-合并严格按 `sample_id`，并检查 `patient_id` 和 `split` 一致。任何样本集合不一致默认失败。
+Merging uses exact `sample_id` matches and checks that `patient_id` and `split` agree. Any mismatch in sample sets causes failure by default.
 
-### 4.2 训练等容量 probe
+### 4.2 Train Equal-Capacity Probes
 
 ```bash
 python -m medical_experiments detail-probe --config /path/to/exp1.yaml
 ```
 
-核心配置：
+Core configuration:
 
 ```yaml
 cache_paths: [/path/to/merged-cache]
@@ -186,117 +186,117 @@ random_feature_control:
 coarse_label_key: modality
 ```
 
-支持 NCHW dense feature 和 NLC token。NLC 必须能还原空间网格；CLS/register token 用 `prefix_tokens` 去除。mask 使用 nearest resize，feature 使用 bilinear resize。
+Both NCHW dense features and NLC tokens are supported. NLC tokens must be recoverable as a spatial grid; remove CLS/register tokens with `prefix_tokens`. Masks use nearest-neighbor resizing, while features use bilinear resizing.
 
-程序报告：
+The program reports:
 
-- sample/patient Dice；
-- positive-only patient Dice；
-- pixel AUROC/AUPRC；
-- 小病灶 component sensitivity；
-- 训练集选择的固定阈值；
-- residual 空间打乱后重新训练同容量 probe 的对照结果。
-- coordinate-only 与匹配 train 一阶统计的 random-feature 负对照；
-- 可选的 GAP + 线性 coarse-label 正对照，检查深层粗语义是否仍可读。
+- Sample-level and patient-level Dice.
+- Positive-only patient Dice.
+- Pixel AUROC/AUPRC.
+- Small-lesion component sensitivity.
+- A fixed threshold selected on the training set.
+- A control that spatially shuffles the residual and retrains a probe of the same capacity.
+- Coordinate-only and random-feature negative controls, with random features matching first-order training statistics.
+- An optional GAP plus linear coarse-label positive control to check whether coarse semantics remain readable at deeper stages.
 
-科学解释：
+Scientific interpretation:
 
-- 早层好、projector 后差：支持 connector bottleneck；
-- 只有 224 差、448 恢复：优先归因分辨率；
-- 各层 probe 相近、最终决策差：信息仍存在，问题在利用而非编码；
-- `projector + residual` 提升且打乱 residual 后消失：支持 LafitE 提供条件增量空间证据。
+- Strong early layers followed by poor performance after the projector support a connector bottleneck.
+- Poor performance only at 224 pixels, with recovery at 448, primarily implicates resolution.
+- Similar probes across stages but poor final decisions indicate that information remains available and its use is the problem.
+- Improvement from `projector + residual` that disappears after residual shuffling supports conditional, additional spatial evidence from LafitE.
 
-建议运行两套配置：一套保留各表示的实际系统能力；另一套统一网格、channel budget 和 probe 容量，隔离机制原因。
+Run two configurations where possible: one preserving each representation's actual system capabilities, and another matching spatial grids, channel budgets, and probe capacity to isolate the mechanism.
 
-## 5. 实验二：病灶与非临床背景干预
+## 5. Experiment 2: Lesion and Nonclinical Background Interventions
 
-### 5.1 生成四个严格配对版本
+### 5.1 Generate Four Strictly Paired Versions
 
 ```bash
 python -m medical_experiments make-interventions \
   --config experiments/medical-diagnostics/make-interventions.example.yaml
 ```
 
-每个样本生成：
+Each sample produces:
 
-- `original`：原图；
-- `lesion_removed`：匹配正常参考或局部 Gaussian 修复病灶；
-- `nuisance_changed`：只修改病灶膨胀保护区之外的噪声/模糊/风格；
-- `placebo`：在病灶外找到同形状、同面积区域并执行相同类型编辑。
+- `original`: the original image.
+- `lesion_removed`: lesion repair using a matched normal reference or local Gaussian repair.
+- `nuisance_changed`: noise, blur, or style changes only outside a dilated lesion-protection region.
+- `placebo`: an edit of the same type in an equally shaped, equal-area region outside the lesion.
 
-正式实验应在 manifest 提供经过审核的 `nuisance_mask`，并设置 `require_nuisance_mask: true`。若省略，代码会扰动整个病灶保护区之外的图像，只适合软件调试，不能被解释成“纯背景因果干预”。
+For formal experiments, supply a reviewed `nuisance_mask` in the manifest and set `require_nuisance_mask: true`. If omitted, the code perturbs the entire image outside the protected lesion region. This is suitable only for software debugging and cannot be interpreted as a purely background causal intervention.
 
-代码不会使用黑块遮挡。输出同时记录：
+The code does not use black-block occlusion. Outputs also record:
 
-- 编辑区域内外 MAE；
-- protected ROI 的变化；
-- 边界梯度 artifact score；
-- continuity score；
-- 实际变化比例。
+- MAE inside and outside the edited region.
+- Changes in the protected ROI.
+- A boundary-gradient artifact score.
+- A continuity score.
+- The fraction of the image actually changed.
 
-若设置 `model_factory`，四幅图立即由同一个冻结模型评分。factory 接口为：
+When `model_factory` is set, the same frozen model immediately scores all four images. Its factory interface is:
 
 ```python
 def build_predictor(kwargs):
     return {
         "predict": lambda image, record: {
             "score": anomaly_score,
-            "mask": predicted_mask,       # 可选
-            "report_entities": ["nodule", "effusion"],  # 可选，结构化实体
+            "mask": predicted_mask,       # Optional.
+            "report_entities": ["nodule", "effusion"],  # Optional structured entities.
         }
 }
 ```
 
-调用 predictor 前默认移除 `finding`、`report`、`label`、`target_entity` 和 `ground_truth`，防止测试标签进入提示或模型输入；这些字段只保留在评估记录中。
+Before the predictor is called, `finding`, `report`, `label`, `target_entity`, and `ground_truth` are removed by default to prevent test labels from entering prompts or model inputs. These fields remain only in evaluation records.
 
-自动 placebo 会匹配病灶形状、软 mask 质量和局部强度上下文；正式实验还应在每条 manifest 提供 `placebo_allowed_mask`，把候选位置限制在同器官/同组织。`dilation_radius` 与 `gaussian_sigma` 在 3D 中按 voxel 解释，因此强各向异性 CT/MRI 必须先重采样，或在外部按物理 spacing 换算后再运行。
+Automatic placebo generation matches lesion shape, soft-mask mass, and local intensity context. Formal experiments should also provide `placebo_allowed_mask` in each manifest record to constrain candidate locations to the same organ or tissue. In 3D, `dilation_radius` and `gaussian_sigma` are interpreted in voxels. Strongly anisotropic CT/MRI must therefore be resampled first, or these values must be converted externally using physical spacing.
 
-仓库提供了 LafitE 参考 factory：`medical_experiments.factories.lafite:make_lafite_predictor`。mask threshold 必须来自 calibration split；不提供阈值时只输出异常分数，避免逐图 min-max normalization 伪造稳定性。
+The repository includes a reference LafitE factory: `medical_experiments.factories.lafite:make_lafite_predictor`. The mask threshold must come from the calibration split. Without a threshold, only anomaly scores are returned, avoiding artificial stability from per-image min-max normalization.
 
-`cohort: positive` 生成完整四配对病灶实验；`cohort: normal` 仅生成 original 与 nuisance-changed，用于固定阈值下的正常病例 FPR 漂移。两类患者应分别分析，不能让正常病例的零 lesion response 稀释病灶效应。
+`cohort: positive` generates the full four-way paired lesion experiment. `cohort: normal` generates only original and nuisance-changed images to measure normal-case FPR drift at a fixed threshold. Analyze these patient groups separately so that zero lesion responses in normal cases do not dilute the lesion effect.
 
-### 5.2 患者级配对统计
+### 5.2 Patient-Level Paired Statistics
 
 ```bash
 python -m medical_experiments shortcut-eval --config /path/to/exp2.yaml
 ```
 
-输入采用 long-form JSONL：
+Inputs use long-form JSONL:
 
 ```json
 {"patient_id":"case001","sample_id":"case001-z042","variant":"original","score":0.91,"mask":"/pred/original.npy"}
 {"patient_id":"case001","sample_id":"case001-z042","variant":"lesion_removed","score":0.23,"mask":"/pred/removed.npy"}
 ```
 
-可选写入 `label`、`report_entities`、`target_entity`，并在配置中提供 calibration set 锁定的 `decision_threshold`。程序随后额外计算正常患者 FPR 漂移、报告实体 Jaccard，以及去病灶后目标实体消失率；缺少这些字段时相应终点明确标记为不可评估，不会使用 BLEU 代替。
+Optionally include `label`, `report_entities`, and `target_entity`, and supply a `decision_threshold` locked using the calibration set. The program then also computes normal-patient FPR drift, report-entity Jaccard similarity, and the disappearance rate of target entities after lesion removal. If these fields are missing, the corresponding endpoints are explicitly marked unevaluable; BLEU is not used as a substitute.
 
-先在患者内聚合，再 bootstrap 患者。主要输出：
+Aggregate within patients first, then bootstrap patients. Main outputs include:
 
-- `variant - original` 的配对分数变化；
-- nuisance/placebo 与 original 的 mask Dice；
-- `nuisance response / lesion-removal response`；
-- 预注册 red-flag 规则及逐项判定。
+- Paired score changes, `variant - original`.
+- Mask Dice between nuisance/placebo and original images.
+- `nuisance response / lesion-removal response`.
+- Preregistered red-flag rules and individual decisions.
 
-正式研究应至少使用两种独立病灶修复方法，并用 real-vs-edited artifact detector 或盲法审核确认编辑不是新的快捷方式。病灶周围水肿、占位效应等解剖上下文不能自动归类为“坏背景”。
+A formal study should use at least two independent lesion-repair methods and confirm, through a real-versus-edited artifact detector or blinded review, that the edits do not introduce new shortcuts. Anatomical context such as perilesional edema and mass effect must not automatically be classified as harmful background.
 
-## 6. 实验三：LLM 必要性
+## 6. Experiment 3: LLM Necessity
 
-实验三使用独立 JSONL，每行至少包含：
+Experiment 3 uses a separate JSONL file, with at least these fields per line:
 
 ```json
 {"patient_id":"case001","organ":"lung","region":"right_upper_lobe","finding":"nodule"}
 ```
 
-程序先按患者去重，再留出医学上有效的 `organ × finding` 边；每个节点必须仍在训练中单独出现。
+The program first deduplicates by patient, then holds out medically valid `organ × finding` edges. Every individual node must still appear in training.
 
-### 6.1 导出真实 LLM 的四条件分数
+### 6.1 Export Real LLM Scores Under Four Conditions
 
 ```bash
 python -m medical_experiments export-semantic-scores \
   --config experiments/medical-diagnostics/export-semantic-scores.example.yaml
 ```
 
-factory 接口：
+Factory interface:
 
 ```python
 def build_scorer(kwargs):
@@ -305,22 +305,22 @@ def build_scorer(kwargs):
     return score
 ```
 
-程序强制执行四种条件：
+The program enforces four conditions:
 
-1. image/evidence present + correct knowledge；
-2. no image/evidence + correct knowledge；
-3. image/evidence present + shuffled knowledge；
-4. no image/evidence + shuffled knowledge。
+1. Image/evidence present + correct knowledge.
+2. No image/evidence + correct knowledge.
+3. Image/evidence present + shuffled knowledge.
+4. No image/evidence + shuffled knowledge.
 
-在调用模型前会移除 `finding`、`report`、`label` 等 target 字段；no-image 条件还会移除 image、mask、feature cache 和 region。输出字段分别为 `scores`、`scores_no_image`、`scores_shuffled_knowledge`、`scores_no_image_shuffled_knowledge`。
+Target fields such as `finding`, `report`, and `label` are removed before the model is called. The no-image condition also removes the image, mask, feature cache, and region. The output fields are `scores`, `scores_no_image`, `scores_shuffled_knowledge`, and `scores_no_image_shuffled_knowledge`, respectively.
 
-### 6.2 与强基线统一比较
+### 6.2 Compare Consistently Against Strong Baselines
 
 ```bash
 python -m medical_experiments llm-necessity --config /path/to/exp3.yaml
 ```
 
-示例配置：
+Example configuration:
 
 ```yaml
 manifest: /path/to/records-with-scores.jsonl
@@ -342,40 +342,40 @@ baselines:
   - {name: full_mllm, type: precomputed}
 ```
 
-输出 `per_sample.jsonl` 和 `summary.json`，指标包括：
+Outputs are `per_sample.jsonl` and `summary.json`. Metrics include:
 
-- seen/unseen MRR、Recall@k、NLL；
-- unseen − seen gap；
-- evidence × knowledge 的 2×2 interaction；
-- 上述指标、simple effect 与 interaction 的 percentile bootstrap CI；
-- patient/edge 泄漏审计。
+- Seen/unseen MRR, Recall@k, and NLL.
+- The unseen-minus-seen gap.
+- The 2×2 evidence × knowledge interaction.
+- Percentile bootstrap confidence intervals for these metrics, simple effects, and interactions.
+- A patient/edge leakage audit.
 
-seen CI 以患者为重采样单位；unseen CI 优先进行 `organ × finding` edge→patient 两级重采样。四个 evidence×knowledge 条件始终在同一患者 block 内一起抽样。若测试集只有一条 held-out edge，edge 层不确定性会退化；这些区间也不涵盖新医院/新设备的外部分布漂移。
+Seen confidence intervals resample patients. Unseen intervals preferentially use two-stage `organ × finding` edge → patient resampling. All four evidence × knowledge conditions are always sampled together within the same patient block. With only one held-out test edge, edge-level uncertainty degenerates. These intervals also do not cover external distribution shifts to new hospitals or devices.
 
-这一 runner 对应先做的 **3A：oracle/固定视觉证据下的语义排序**。只有 3A 中 LLM 胜过频率先验和小模型，才值得实现 3B 端到端融合；3B 应让各语义模块使用同一 LafitE/视觉证据并另外报告 Dice、FROC/AUPRO。当前仓库不会在融合模型尚不存在时伪造一个“LLM 定位”结果。
+This runner implements the initial **3A: semantic ranking with oracle/fixed visual evidence**. Implementing 3B end-to-end fusion is worthwhile only if the LLM beats frequency priors and small models in 3A. In 3B, every semantic module should use the same LafitE/visual evidence, and Dice and FROC/AUPRO should be reported separately. The repository does not fabricate LLM localization results before a fusion model exists.
 
-只有当完整 LLM 超过最强小模型，而且增益集中于 unseen edge，并在去图像或打乱知识后消失，才能支持“LLM 对异常检测不可替代”。只改善报告语言风格不能支持这一结论。
+The claim that an LLM is indispensable for anomaly detection requires the full LLM to outperform the strongest small model, with gains concentrated on unseen edges and lost when images are removed or knowledge is shuffled. Improvements in report-writing style alone do not support that claim.
 
-## 7. 推荐正式执行顺序
+## 7. Recommended Formal Execution Order
 
-1. 先在 BMAD Brain MRI 与一个 CT mask 数据集上运行实验一；
-2. 若 residual 有条件增量，再运行实验二；
-3. 前两个 gate 通过后，才在带报告和 grounding 的 CT 数据上运行实验三；
-4. 最终对锁定测试集只运行一次，阈值和 red-flag 标准均在 calibration/validation 上确定。
+1. Run Experiment 1 on BMAD Brain MRI and a CT dataset with masks.
+2. If the residual adds conditional information, run Experiment 2.
+3. Only after both gates pass, run Experiment 3 on CT data with reports and grounding.
+4. Evaluate the locked test set once, after selecting thresholds and red-flag criteria on calibration/validation data.
 
-建议每次结果同时保存：Git commit、配置文件、manifest SHA256、数据版本、模型 checkpoint hash、软件版本和随机种子。
+Save the Git commit, configuration, manifest SHA256, data version, model checkpoint hash, software versions, and random seeds with every result.
 
-## 8. 当前边界
+## 8. Current Limitations
 
-- 仓库没有附带医学数据、模型权重或受限报告；
-- MLLM 内部模块名和 prompt 模板由所选模型的 factory 决定；
-- 当前 LafitE 是 2D，2.5D 可用于 pilot，但不能替代最终 3D 验证；
-- 实验三内置 learned embedding 把 region 当证据代理，只是强控制模型；真实 LLM 必须走四条件 precomputed score；
-- feature/intervention cache 可能包含患者衍生信息，已被 `.gitignore` 排除，仍应存放在合规受控目录。
+- The repository includes no medical data, model weights, or restricted reports.
+- Internal MLLM module names and prompt templates are determined by the selected model's factory.
+- Current LafitE is 2D. A 2.5D pilot cannot replace final 3D validation.
+- Experiment 3's built-in learned embedding uses region as an evidence proxy and serves as a strong control model. A real LLM must use four-condition precomputed scores.
+- Feature and intervention caches may contain patient-derived information. They are excluded by `.gitignore` and should still be stored in an appropriately controlled directory.
 
-## 9. Qwen3-VL-8B 实际运行入口
+## 9. Qwen3-VL-8B Execution Entry Points
 
-仓库已经提供固定到 Qwen3-VL-8B 内部层的正式配置，而不再要求用户自行编写 factory：
+The repository provides formal configurations tied to Qwen3-VL-8B's internal layers, so users do not need to write their own factories:
 
 ```bash
 bash scripts/medical/run-qwen3vl-diagnostics.sh exp1
@@ -384,5 +384,5 @@ bash scripts/medical/run-qwen3vl-diagnostics.sh exp3
 bash scripts/medical/run-qwen3vl-diagnostics.sh results
 ```
 
-环境安装、阈值来源、四卡分配、逐项输出解释与常见错误见
-[`qwen3vl-medical-diagnostics-runbook.md`](qwen3vl-medical-diagnostics-runbook.md)。
+For environment setup, threshold sources, device allocation, interpretation of individual outputs, and common errors, see
+[`qwen3vl-medical-diagnostics-runbook.md`](qwen3vl-medical-diagnostics-runbook.md).
